@@ -11,6 +11,7 @@ if config_env() != :test do
     auto_commit: System.get_env("AUTO_COMMIT", "true") == "true",
     scheduler_poll_interval_ms:
       System.get_env("SCHEDULER_POLL_MS", "15000") |> String.to_integer(),
+    daily_llm_call_budget: System.get_env("DAILY_LLM_CALL_BUDGET", "300") |> String.to_integer(),
     giphy_api_key: System.get_env("GIPHY_API_KEY"),
     qmd_path: System.get_env("QMD_PATH", "qmd"),
     qmd_enabled: System.get_env("QMD_ENABLED", "true") == "true",

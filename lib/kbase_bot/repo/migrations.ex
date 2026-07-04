@@ -75,6 +75,13 @@ defmodule KbaseBot.Repo.Migrations do
       """,
       """
       CREATE INDEX IF NOT EXISTS idx_embeddings_source ON embeddings (source_type)
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS llm_daily_usage (
+          day TEXT PRIMARY KEY,
+          calls INTEGER NOT NULL DEFAULT 0,
+          alerted INTEGER NOT NULL DEFAULT 0
+      )
       """
     ]
   end
@@ -82,7 +89,12 @@ defmodule KbaseBot.Repo.Migrations do
   defp alter_migrations do
     [
       "ALTER TABLE manager_messages ADD COLUMN embedded_at TEXT",
-      "ALTER TABLE tasks ADD COLUMN embedded_at TEXT"
+      "ALTER TABLE tasks ADD COLUMN embedded_at TEXT",
+      """
+      UPDATE schedules
+      SET next_fire_at = strftime('%Y-%m-%dT%H:%M:%SZ', next_fire_at)
+      WHERE next_fire_at IS NOT NULL AND next_fire_at NOT LIKE '%Z'
+      """
     ]
   end
 end

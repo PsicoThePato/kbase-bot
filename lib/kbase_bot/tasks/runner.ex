@@ -14,12 +14,37 @@ defmodule KbaseBot.Tasks.Runner do
   @max_turns 20
 
   def run(%Session{} = session, manager_pid) do
-    session = %{session | task: Task.start_executing(session.task)}
-    Session.save(session)
+    result =
+      try do
+        started = %{session | task: Task.start_executing(session.task)}
+        Session.save(started)
+        execute_loop(started, :task)
+      rescue
+        e ->
+          Logger.error(
+            "Task #{session.task.id} crashed: " <>
+              Exception.format(:error, e, __STACKTRACE__)
+          )
 
-    result = execute_loop(session, :task)
+          persist_failure(session, Exception.message(e))
+          {:error, {:task_crashed, Exception.message(e)}}
+      catch
+        kind, reason ->
+          Logger.error("Task #{session.task.id} #{kind}: #{inspect(reason)}")
+          persist_failure(session, inspect(reason))
+          {:error, {:task_crashed, inspect(reason)}}
+      end
 
     send(manager_pid, {:task_complete, session.task.id, result})
+  end
+
+  defp persist_failure(session, reason) do
+    Session.save(%{session | task: Task.fail(session.task, reason)})
+  rescue
+    e -> Logger.error("Task #{session.task.id}: couldn't persist failure: #{inspect(e)}")
+  catch
+    kind, r ->
+      Logger.error("Task #{session.task.id}: couldn't persist failure: #{kind} #{inspect(r)}")
   end
 
   def execute_loop(%Session{} = session, layer) do
@@ -66,13 +91,19 @@ defmodule KbaseBot.Tasks.Runner do
     Enum.map(tool_calls, fn %{id: id, name: name, input: input} ->
       Logger.info("Executing tool: #{name}")
 
-      case Registry.execute(name, input, context) do
-        {:ok, result} ->
-          %{tool_use_id: id, content: result}
+      try do
+        case Registry.execute(name, input, context) do
+          {:ok, result} ->
+            %{tool_use_id: id, content: result}
 
-        {:error, reason} ->
-          Logger.warning("Tool #{name} failed: #{reason}")
-          %{tool_use_id: id, content: "Error: #{reason}", is_error: true}
+          {:error, reason} ->
+            Logger.warning("Tool #{name} failed: #{reason}")
+            %{tool_use_id: id, content: "Error: #{reason}", is_error: true}
+        end
+      rescue
+        e ->
+          Logger.error("Tool #{name} crashed: #{inspect(e)}")
+          %{tool_use_id: id, content: "Error: tool crashed", is_error: true}
       end
     end)
   end

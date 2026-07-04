@@ -15,6 +15,7 @@ defmodule KbaseBot.Scheduler.Cron do
             dt =
               naive_dt
               |> DateTime.from_naive!(timezone)
+              |> DateTime.shift_zone!("Etc/UTC")
               |> DateTime.to_iso8601()
 
             {:ok, dt}

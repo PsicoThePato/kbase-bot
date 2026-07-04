@@ -184,6 +184,19 @@ defmodule KbaseBot.Manager do
     end
   end
 
+  defp handle_llm_result({:error, :llm_budget_exceeded}, state) do
+    Logger.warning("Manager LLM call refused: daily budget exhausted")
+
+    KbaseBot.Telegram.send_message(
+      state.chat_id,
+      "I've hit today's LLM call budget, so I'm pausing until midnight UTC. " <>
+        "If you weren't expecting this, something may be looping — check the schedules. " <>
+        "You can raise DAILY_LLM_CALL_BUDGET if today just ran hot."
+    )
+
+    finish_llm_loop(state)
+  end
+
   defp handle_llm_result({:error, reason}, state) do
     Logger.error("Manager LLM call failed: #{inspect(reason)}")
     KbaseBot.Telegram.send_message(state.chat_id, "Something went wrong. Try again.")

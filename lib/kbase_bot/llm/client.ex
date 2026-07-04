@@ -49,7 +49,10 @@ defmodule KbaseBot.LLM.Client do
         anthropix_opts
       end
 
-    do_request(anthropix_opts, 0)
+    case KbaseBot.LLM.Budget.check_and_increment() do
+      :ok -> do_request(anthropix_opts, 0)
+      {:error, :llm_budget_exceeded} = error -> error
+    end
   end
 
   defp cache_last_tool([]), do: []

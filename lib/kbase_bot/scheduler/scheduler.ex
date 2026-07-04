@@ -58,16 +58,28 @@ defmodule KbaseBot.Scheduler.Scheduler do
                 DateTime.now!(timezone || "America/Sao_Paulo")
                 |> DateTime.add(60)
 
-              next =
-                case Cron.next_fire_at(cron, timezone, fired_at) do
-                  {:ok, dt} -> dt
-                  {:error, _} -> nil
-                end
+              case Cron.next_fire_at(cron, timezone, fired_at) do
+                {:ok, next} ->
+                  KbaseBot.Repo.Store.execute(
+                    "UPDATE schedules SET last_fired_at = ?1, fire_count = ?2, next_fire_at = ?3, updated_at = ?1 WHERE id = ?4",
+                    [now, new_fire_count, next, id]
+                  )
 
-              KbaseBot.Repo.Store.execute(
-                "UPDATE schedules SET last_fired_at = ?1, fire_count = ?2, next_fire_at = ?3, updated_at = ?1 WHERE id = ?4",
-                [now, new_fire_count, next, id]
-              )
+                {:error, reason} ->
+                  Logger.error(
+                    "Schedule #{id}: can't compute next fire time (#{inspect(reason)}), pausing"
+                  )
+
+                  alert_owner(
+                    "⚠️ Schedule #{id} was paused — I couldn't compute its next fire time " <>
+                      "(#{inspect(reason)}). Payload: #{String.slice(payload, 0, 120)}"
+                  )
+
+                  KbaseBot.Repo.Store.execute(
+                    "UPDATE schedules SET last_fired_at = ?1, fire_count = ?2, next_fire_at = NULL, state = 'error', updated_at = ?1 WHERE id = ?3",
+                    [now, new_fire_count, id]
+                  )
+              end
             end
 
           case db_result do
@@ -86,6 +98,13 @@ defmodule KbaseBot.Scheduler.Scheduler do
 
       {:error, reason} ->
         Logger.error("Scheduler poll failed: #{inspect(reason)}")
+    end
+  end
+
+  defp alert_owner(text) do
+    case Application.get_env(:kbase_bot, :telegram_chat_id) do
+      nil -> :ok
+      chat_id -> KbaseBot.Telegram.send_message(chat_id, text)
     end
   end
 end
