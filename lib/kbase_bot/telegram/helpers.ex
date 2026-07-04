@@ -7,13 +7,21 @@ defmodule KbaseBot.Telegram do
 
   @max_message_length 4096
 
-  def send_message(chat_id, text) when byte_size(text) <= @max_message_length do
+  def send_message(chat_id, text) do
+    if Application.get_env(:kbase_bot, :console_mode, false) do
+      KbaseBot.Console.print(text)
+    else
+      deliver(chat_id, text)
+    end
+  end
+
+  defp deliver(chat_id, text) when byte_size(text) <= @max_message_length do
     ExGram.send_message(chat_id, text, parse_mode: "Markdown")
   rescue
     _ -> ExGram.send_message(chat_id, text)
   end
 
-  def send_message(chat_id, text) do
+  defp deliver(chat_id, text) do
     text
     |> split_message()
     |> Enum.each(fn chunk ->

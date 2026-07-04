@@ -9,23 +9,43 @@ defmodule KbaseBot.Application do
       if Application.get_env(:kbase_bot, :start_children?, true) do
         [
           KbaseBot.Repo.Store,
-          KbaseBot.Context.Server,
-          KbaseBot.Memory.Embedder,
-          KbaseBot.Ingress,
-          KbaseBot.Manager,
-          {Elixir.Task.Supervisor, name: KbaseBot.TaskSupervisor},
-          ExGram,
-          {KbaseBot.Telegram.Bot, [method: :polling, token: ExGram.Config.get(:ex_gram, :token)]},
-          KbaseBot.Scheduler.Scheduler,
-          # One-shot deploy/restart notification (Task children are :temporary,
-          # so a failed send never restarts or takes down the tree)
-          {Elixir.Task, &KbaseBot.StartupNotifier.notify/0}
-        ]
+          KbaseBot.Context.Server
+        ] ++
+          embedder_children() ++
+          [
+            KbaseBot.Ingress,
+            KbaseBot.Manager,
+            {Elixir.Task.Supervisor, name: KbaseBot.TaskSupervisor}
+          ] ++
+          interface_children() ++
+          [KbaseBot.Scheduler.Scheduler]
       else
         []
       end
 
     opts = [strategy: :one_for_one, name: KbaseBot.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp embedder_children do
+    if Application.get_env(:kbase_bot, :voyage_api_key) in [nil, ""] do
+      []
+    else
+      [KbaseBot.Memory.Embedder]
+    end
+  end
+
+  defp interface_children do
+    if Application.get_env(:kbase_bot, :console_mode, false) do
+      [KbaseBot.Console]
+    else
+      [
+        ExGram,
+        {KbaseBot.Telegram.Bot, [method: :polling, token: ExGram.Config.get(:ex_gram, :token)]},
+        # One-shot deploy/restart notification (Task children are :temporary,
+        # so a failed send never restarts or takes down the tree)
+        {Elixir.Task, &KbaseBot.StartupNotifier.notify/0}
+      ]
+    end
   end
 end

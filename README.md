@@ -65,7 +65,37 @@ override any prompt without touching code: put a file with the same name in
 `<knowledge_base>/prompts/` (or point `PROMPTS_DIR` somewhere else). Overrides are
 read at runtime, so they can live inside your encrypted vault.
 
-## Running it
+## Try it in 2 minutes
+
+No Telegram setup, no accounts — just an Anthropic API key and
+[just](https://github.com/casey/just):
+
+```sh
+export ANTHROPIC_API_KEY=sk-ant-…
+just demo
+```
+
+You get a terminal chat against a bundled sample knowledge base (the personal notes
+of one Quackston Fitzduck III, duck and software engineer). Ask it *"what's my
+flight training today?"*, *"what am I not allowed to eat?"*, or set a reminder and
+watch the scheduler fire. Console mode (`CONSOLE_MODE=true`) runs the exact same
+Manager/task agent pipeline as production — only the Telegram transport is swapped
+for stdin/stdout, and tools whose integrations aren't configured (Todoist, web
+search, GIFs, embeddings) are simply not offered to the model.
+
+Want web search in the demo? Export an [Exa](https://exa.ai) key alongside the
+Anthropic one and the `web_search` tool appears automatically:
+
+```sh
+EXA_API_KEY=… just demo
+# then: "search the web for whether ducks can actually get angel wing from bread"
+```
+
+Searches take noticeably longer than KB questions — the agent fans out to the web
+and reads results — so give it time. The same pattern works for every optional
+integration below: set the key, the tool shows up.
+
+## Running it for real
 
 ```sh
 cp .env.example .env   # fill in: Telegram bot token + chat id, Anthropic key, etc.
@@ -76,8 +106,28 @@ mix run --no-halt
 
 Configuration is entirely environment-driven (`config/runtime.exs`): `REPO_PATH`
 points at your knowledge-base directory, `TELEGRAM_CHAT_ID` is the single authorized
-user, `QMD_ENABLED`/`QMD_PATH` control semantic search, `PROMPTS_DIR` overrides the
-prompt directory, `MODEL` selects the Claude model.
+user, `PROMPTS_DIR` overrides the prompt directory, `MODEL` selects the Claude model,
+`TIMEZONE`/`LOCALE` localize the bot's clock. Only the Anthropic and Telegram
+credentials are required; every other integration is optional.
+
+## Optional integrations
+
+Each integration activates when its env var is set; without it, the related tools
+are hidden from the model entirely — nothing breaks, the capability just doesn't
+exist.
+
+| Env var | Unlocks | Get a key |
+|---|---|---|
+| `EXA_API_KEY` | `web_search` — web questions the KB can't answer | [exa.ai](https://exa.ai) (free tier) |
+| `TODOIST_API_KEY` | `create/list/complete/delete_todo` | [Todoist](https://todoist.com) → Settings → Integrations → Developer |
+| `VOYAGE_API_KEY` | `search_history` / `search_tasks` — semantic search over past conversations and task results (starts the background embedder) | [voyageai.com](https://www.voyageai.com) |
+| `GIPHY_API_KEY` | `send_gif` (Telegram mode only) | [developers.giphy.com](https://developers.giphy.com) |
+
+**Semantic search over the knowledge base** is separate: it shells out to
+[qmd](https://github.com/tobi/qmd) (`npm install`, then `qmd update && qmd embed` to
+build the index). Enable with `QMD_ENABLED=true` and point `QMD_PATH` at the binary
+(`node_modules/.bin/qmd`). Without it, the agent falls back to `list_files` +
+`read_file`, which works fine for small knowledge bases.
 
 Tests: `mix test`. CI runs format check, compile with warnings-as-errors, and tests.
 

@@ -25,6 +25,8 @@ defmodule KbaseBot.Manager do
     # ref of the in-flight LLM call (nil when idle) + which loop turn it is
     :llm_ref,
     llm_turn: 0,
+    # whether the respond tool was called at any point in the current loop
+    llm_responded: false,
     # inputs that arrived while an LLM loop was running (newest first)
     pending_inputs: []
   ]
@@ -62,12 +64,12 @@ defmodule KbaseBot.Manager do
 
   @impl true
   def handle_cast({:process, messages}, state) do
-    now = DateTime.now!("America/Sao_Paulo")
+    now = DateTime.now!(Application.get_env(:kbase_bot, :timezone, "America/Sao_Paulo"))
     time_str = Calendar.strftime(now, "%H:%M")
-    day_name = day_of_week_name(Date.day_of_week(DateTime.to_date(now)))
+    day_name = day_of_week_name(locale(), Date.day_of_week(DateTime.to_date(now)))
 
     user_content =
-      "[System] Current time: #{time_str} BRT (#{day_name})\n\n" <>
+      "[System] Current time: #{time_str} #{now.zone_abbr} (#{day_name})\n\n" <>
         Enum.map_join(messages, "\n", & &1)
 
     {:noreply, enqueue_input(state, user_content)}
@@ -138,7 +140,7 @@ defmodule KbaseBot.Manager do
 
   defp enqueue_input(state, content) do
     if state.llm_ref == nil do
-      state
+      %{state | llm_responded: false}
       |> append_message(%{"role" => "user", "content" => content})
       |> start_llm_turn(0)
     else
@@ -168,12 +170,26 @@ defmodule KbaseBot.Manager do
 
     case Client.extract_tool_calls(response) do
       [] ->
-        # LLM is done — no more tool calls
+        # LLM is done — no more tool calls. If it never called respond, its
+        # final text was meant for the user; deliver it instead of dropping it.
+        text = Client.extract_text(response) |> String.trim()
+
+        if not state.llm_responded and text != "" do
+          KbaseBot.Telegram.send_message(state.chat_id, text)
+        end
+
         finish_llm_loop(state)
 
       tool_calls ->
         {results, state} = execute_manager_tools(tool_calls, state)
         state = append_tool_results(state, results)
+
+        state =
+          if Enum.any?(tool_calls, &(&1.name == "respond")) do
+            %{state | llm_responded: true}
+          else
+            state
+          end
 
         if state.llm_turn + 1 >= @max_turns do
           Logger.warning("Manager: max turns exceeded")
@@ -214,7 +230,7 @@ defmodule KbaseBot.Manager do
         append_message(acc, %{"role" => "user", "content" => content})
       end)
 
-    start_llm_turn(%{state | pending_inputs: []}, 0)
+    start_llm_turn(%{state | pending_inputs: [], llm_responded: false}, 0)
   end
 
   defp append_tool_results(state, results) do
@@ -419,11 +435,16 @@ defmodule KbaseBot.Manager do
 
   # --- Helpers ---
 
-  defp day_of_week_name(1), do: "Segunda-feira"
-  defp day_of_week_name(2), do: "Terca-feira"
-  defp day_of_week_name(3), do: "Quarta-feira"
-  defp day_of_week_name(4), do: "Quinta-feira"
-  defp day_of_week_name(5), do: "Sexta-feira"
-  defp day_of_week_name(6), do: "Sabado"
-  defp day_of_week_name(7), do: "Domingo"
+  defp locale, do: Application.get_env(:kbase_bot, :locale, "pt")
+
+  @day_names %{
+    "pt" => ~w(Segunda-feira Terca-feira Quarta-feira Quinta-feira Sexta-feira Sabado Domingo),
+    "en" => ~w(Monday Tuesday Wednesday Thursday Friday Saturday Sunday)
+  }
+
+  defp day_of_week_name(locale, day) do
+    @day_names
+    |> Map.get(locale, @day_names["en"])
+    |> Enum.at(day - 1)
+  end
 end

@@ -33,16 +33,35 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.DeleteTodo
   ]
 
+  @required_config %{
+    KbaseBot.Tools.SendGif => :giphy_api_key,
+    KbaseBot.Tools.WebSearch => :exa_api_key,
+    KbaseBot.Tools.CreateTodo => :todoist_api_key,
+    KbaseBot.Tools.ListTodos => :todoist_api_key,
+    KbaseBot.Tools.CompleteTodo => :todoist_api_key,
+    KbaseBot.Tools.DeleteTodo => :todoist_api_key,
+    KbaseBot.Tools.SearchHistory => :voyage_api_key,
+    KbaseBot.Tools.SearchTasks => :voyage_api_key
+  }
+
   @doc """
-  Returns Anthropic-format tool schemas for a given layer.
+  Returns Anthropic-format tool schemas for a given layer. Tools whose
+  backing integration is unconfigured are omitted.
   """
   def for_layer(layer) do
     @tools
     |> Enum.filter(fn mod ->
       Code.ensure_loaded?(mod) and function_exported?(mod, :layer, 0) and
-        mod.layer() in [layer, :both]
+        mod.layer() in [layer, :both] and configured?(mod)
     end)
     |> Enum.map(&tool_schema/1)
+  end
+
+  defp configured?(mod) do
+    case @required_config[mod] do
+      nil -> true
+      key -> Application.get_env(:kbase_bot, key) not in [nil, ""]
+    end
   end
 
   @doc """
