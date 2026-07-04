@@ -1,0 +1,24 @@
+# Nix
+.nix-mix/
+.nix-hex/
+.direnv/
+result
+
+# Elixir
+_build/
+deps/
+*.beam
+
+# Node
+node_modules/
+package-lock.json
+
+# SQLite
+priv/repo.db
+priv/repo.db-*
+
+# Secrets
+.env
+
+# OS
+.DS_Store
