@@ -28,7 +28,7 @@ My knowledge base should be able to talk to my friends' knowledge bases:
 These are two deliberately separate artifacts:
 
 - **The protocol** — identity assertions, signed envelopes, contact cards, scopes/grants
-  semantics, capability tokens. Implementation-agnostic: nothing in it names Elixir,
+  semantics, delegation-record proofs. Implementation-agnostic: nothing in it names Elixir,
   Telegram, HTTP, or a queue. Anyone could implement a compatible peer in any stack.
 - **KbaseBot's implementation** — how *this* bot speaks the protocol: which transports it
   listens on, where contacts/grants/trust are persisted (SQLite/policy files), how
@@ -48,14 +48,27 @@ Everything hangs off six nouns:
 |---|---|
 | **Principal** | A stable identity for a person-or-agent pair. Canonical form: a public-key fingerprint plus display metadata. The owner is a principal too (the superuser). |
 | **Contact** | The owner-side record of a known peer: a principal plus its current contact card (endpoints, accepted identity providers), a human-friendly name, and links to its grants and trust entries. The address book. |
-| **Scope** | A topic label attached to knowledge (`movies`, `training`, `medical`). Content carries scopes; grants and trust are expressed against scopes, never against raw paths. |
-| **Grant** | `(principal, scope, capability)` — what a principal may *do*: `query` (ask questions answered from that scope), `read` (see excerpts), `delegate` (pass the capability on, attenuated). |
-| **Trust** | `(principal, topic, weight, transitive?)` — how much the owner's agent should *believe* that principal on a topic when aggregating answers. |
+| **Scope** | A label attached to knowledge (`movies`, `training`, `medical`). Content carries scopes; grants are expressed against scopes, never against raw paths. Scope names are **recipient-local**: on the wire they always refer to the answering peer's namespace. |
+| **Grant** | A **signed delegation record** `{iss, aud, scope, caps, caveats, sig}` — what a principal may *do*: `query` (ask questions answered from that scope), `read` (see excerpts), `subscribe` (standing feed), `discuss` (open threads). Every capability carries a **`depth`**: how many further delegation edges may follow it (default 0 — not delegable). The owner's grants table is simply the set of records where `iss` = owner; peers author the same shape when they delegate. |
+| **Trust** | `(principal, topic, weight, transitive?)` — how much the owner's agent should *believe* that principal on a topic when aggregating answers. Topics are the owner's own private labels for domains of belief; they never travel on the wire. |
 | **Provenance** | The signed chain of principals an answer travelled through (`me ← alice ← carol`), carried on every federated response. |
 
 **Privacy and trust are orthogonal.** Privacy governs what leaves my vault (grants);
-trust governs how incoming information is weighted (trust records). Both are keyed by
-`(principal, scope/topic)` but live in separate tables and fail independently.
+trust governs how incoming information is weighted (trust records). They live in
+separate tables and fail independently — and they use two different vocabularies that
+happen to look alike:
+
+- A **scope** gates *content*, and is meaningful in the namespace of whoever's vault it
+  labels: when my agent queries Alice's `movies`, that string is Alice's label, learned
+  from her scope advertisement (below). My own scopes gate my own vault.
+- A **topic** names a *domain of belief* in my own private vocabulary. My agent assigns
+  a topic to every question it composes ("this is a movies question") and scores the
+  returning answers with `trust(peer, topic)` — regardless of which scope string rode
+  the wire. Topics never leave my agent, so they never need cross-peer translation.
+
+The two meet in exactly one place — the **binding table** (see "Scope bindings — the
+translation layer"): owner-private rows mapping my topics to specific peers' scope
+labels, consulted at query-composition and subscription time.
 
 ## Identity module
 
@@ -109,17 +122,68 @@ defaults:
   "medical/**":  {scopes: [medical]}
   "**":          {scopes: [private]}      # unlabeled ⇒ private, always
 grants:
-  "sha256:alice…": {movies: [query], books: [query, read]}
-  "sha256:bob…":   {training: [query]}
+  "sha256:alice…": {movies: {query: {depth: 2}, subscribe: {}}, books: [query, read]}
+  "sha256:bob…":   {training: [query]}        # list form ⇒ all capabilities at depth 0
 ```
 
 Rules:
 
 - **Deny by default.** No scope match + no grant ⇒ the content does not exist for that
   principal. `private` is a reserved scope no grant can name.
+- **Multiscope = intersection (most restrictive wins).** Content may carry several
+  scopes; a principal may access it only with the capability on **every** scope it
+  carries — a principal reaches exactly the files whose scope set ⊆ their granted
+  scopes (`Policy.filter` and the QMD post-filter are a subset check). Adding a scope
+  never widens access.
+- **Escalation is just another scope.** `scopes: [pop, private]` keeps a file topically
+  filed under `pop` while `private` (ungrantable) makes it federation-invisible — a
+  per-file kill switch with no extra mechanism. Ad-hoc compartments work the same way:
+  `[pop, inner-circle]` is readable only by principals holding both. (The classic
+  MLS-compartment lattice.)
 - `medical` (and anything the owner flags) is **non-grantable**: the policy loader
   rejects grants against it. This encodes the existing CLAUDE.md rule that health data
   never leaves the vault.
+- The `grants:` entries are authoring sugar: the loader materializes each as a
+  **signed delegation record** with `iss` = owner — the same artifact peers exchange
+  when they delegate (see "One authorization mechanism").
+
+### Scope visibility & advertisement
+
+Deny-by-default extends to scope *existence*: a principal can see exactly the scopes on
+which they hold at least one grant. Whoever may query `medical` thereby knows a
+`medical` scope exists; nobody else ever learns that. Grossly inspired by A2A's split
+between the public AgentCard and the authenticated extended card:
+
+- The **contact card** may carry a `scopes` field listing only *publicly* visible
+  scopes — those granted to the `anyone` pseudo-principal. Cards are self-signed and
+  relayed through untrusted channels, so nothing per-viewer can live in them.
+- The per-principal view is fetched over the wire: `LIST-SCOPES` → `SCOPES {scopes:
+  [{name, description?}]}`, answered after signature verification and filtered to the
+  asker's grants. Descriptions exist for the requester's *binding* step (below) —
+  matching on bare names is guesswork. This is also how a sender learns the
+  recipient-local labels it may put in a `QUERY`.
+
+### Scope bindings — the translation layer
+
+Peers name their scopes in their own vocabulary; I think in mine. Alice's `medical`
+and Bob's `saude` are both, to me, `health`. A **binding** is an owner-private row:
+
+```
+(my_topic, principal, peer_scope, confidence, confirmed?)
+  health → alice: medical     (0.95, auto)
+  health → alice: fitness     (0.80, auto)
+  health → bob:   saude       (—,    owner-confirmed)
+```
+
+- **Populated when a peer's `SCOPES` answer arrives**: the agent matches names and
+  descriptions against my topic vocabulary (an LLM-judgment step), auto-binds above a
+  confidence threshold, and escalates ambiguity to Telegram ("Alice has a scope
+  `wellness` — bind to your `health` topic?").
+- **Everything owner-side reads through bindings**: query fan-out ("ask my
+  health-trusted peers" resolves to alice:`medical` + bob:`saude`), subscriptions
+  (subscribing to a topic subscribes to every bound scope), and trust scoring (an
+  answer from alice:`medical` scores against `trust(alice, health)`).
+- Bindings, like topics and trust, never cross the wire.
 
 ### Enforcement is structural, not prompt-level
 
@@ -169,13 +233,128 @@ Two different things, kept deliberately separate:
    agent can't answer and my trust record marks movies as transitive, her agent may
    forward the question to *her* trusted movie peers, decrementing the TTL. My data never
    moves — only my question does (and the question text itself is something my agent
-   composed for external ears).
-2. **Transitive access** (my data travels further): default **off**. When granted, model
-   it as **capability tokens à la Biscuit/macaroons**: I issue Alice a token
-   `[scope=movies, cap=query, hops≤2, exp=…]`; she can *attenuate* it (never widen) and
-   hand it to Carol offline. Carol presents the token; I verify the chain
-   cryptographically without ever having met her. This keeps transitive access
-   provable and revocable (short expiry + revocation list) instead of trust-me-bro.
+   composed for external ears). Two gates, one per side: *my* trust record's
+   `transitive` flag governs whether my agent lets the question travel at all; on the
+   *answering* side, a forwarded question is just a presented chain — Alice attaches an
+   ephemeral attenuated record (`iss: alice, aud: me, query depth 0, short exp`) to the
+   forward, and Carol's verifier requires her own record to Alice to carry `query`
+   with `depth ≥ 1`. Same live-reachability rule as every access check — see "One
+   authorization mechanism" below; hops never manufacture authority.
+2. **Transitive access** (my data travels further): default **off**. When granted, no
+   new artifact is needed: since a grant *is* a signed record, Alice delegates by
+   authoring one — `{iss: alice, aud: carol, scope: movies, caps: {query: {depth: 0}},
+   caveats: {exp: …}, sig}` — attenuating (never widening) what my record gave her,
+   and handing it to Carol offline. Carol presents the chain when she queries; "One
+   authorization mechanism" below defines how it is verified. Revoking Alice instantly
+   severs everyone whose only path to me ran through her.
+
+## One authorization mechanism
+
+Direct and transitive access are not two systems. Every `QUERY` carries
+`proof: [records…]`, possibly empty, and one verifier decides everything:
+
+> Find a **live path** from me to the presenting principal covering
+> `(scope, capability)`, over the union of **my local records** and the **presented
+> ones**, where every edge's capability `depth` covers the remaining path length.
+
+- **Direct peer**: `proof` is empty; the path has length 1 and is found entirely in my
+  own table. Same verifier, degenerate case.
+- **Transitive peer**: Carol presents `[alice→carol]`. The `me→alice` edge is *not*
+  presented — it must exist, live, in my table. My local state is authoritative for my
+  own edges; presented records only prove edges I couldn't know about. Delete my grant
+  to Alice and Carol's record dangles from nothing — that is the whole revocation
+  story for my side.
+- **Depth replaces a separate `delegate` capability.** Every capability on a record
+  carries `depth`: how many further delegation edges may follow it — **remaining
+  hops, not distance from the owner** (default **0** — not delegable). In a path of
+  length L (edges numbered 1..L outward from me), the record on edge i must carry
+  `depth ≥ L − i`, and an attenuated record must carry a strictly smaller depth than
+  its parent. Worked example:
+
+  ```
+  me    ──(query depth 2)──▶ Alice    Alice's budget: may delegate, ≤ depth 1
+  Alice ──(query depth 1)──▶ Carol    Carol's budget: may delegate, ≤ depth 0
+  Carol ──(query depth 0)──▶ Dave    Dave cannot delegate; chain (L=3) verifies:
+                                      edge 1 ≥ 2 ✓, edge 2 ≥ 1 ✓, edge 3 ≥ 0 ✓
+  ```
+
+  Because the budget rides in the signed record itself, **delegation failure is
+  locally decidable**: a holder at `depth: 0` knows offline, at authoring time, that
+  any record they issue produces a chain no verifier will accept — and a presenter
+  can check a chain's arithmetic before spending a round trip. Well-behaved agents
+  never issue dead records; the verifier's `DECLINE` stays indistinguishable
+  regardless. Depth is per capability, per grant — `query: {depth: 2}` next to
+  `discuss: {depth: 0}` on the same scope is the expected shape: cheap capabilities
+  may travel, expensive ones stay close (see Discussions for why this matters most
+  there).
+- **Caveats intersect along the path** (weakest link): the effective capability is the
+  meet of every edge's caps, depth, and expiry. Hops never accumulate authority.
+- **Inspectability is the point.** A proof is not an opaque blob; it is a list of
+  human-readable, individually signed statements. "How did Carol come to see this?"
+  is printing the path:
+
+  ```
+  me    ──(movies: query depth 2, issued 2026-07-01)──▶ Alice
+  Alice ──(movies: query depth 0, exp 2026-08-01, issued 2026-07-03)──▶ Carol
+  ```
+
+  Proof and provenance are two instances of one shape — signed chains of principals:
+  provenance is the path an *answer* traveled, a proof is the path *authority*
+  traveled. Same inspection tooling; an owner-side `explain_access` tool falls out
+  for free.
+- **The honest asymmetry**: *my* revocations are instant (live table); *downstream*
+  revocations are expiry-bounded — if Alice revokes Carol, I can't know until Carol's
+  record expires. Delegated records must therefore be short-lived and re-issued. This
+  is inherent to any offline-delegable scheme, so it is stated rather than hidden.
+
+## Subscriptions
+
+Standing feeds — the counterpart of Gossip's push-by-judgment. Capability:
+`subscribe`, deliberately separate from `query`: answering a question is a bounded
+disclosure; a subscription is a standing tap on everything new in a scope.
+
+- `SUBSCRIBE {scope}` registers the feed (verified like any capability exercise —
+  proof chain, live path, depth). `PUBLISH {scope, item, provenance}` delivers;
+  `UNSUBSCRIBE` ends it. *When* a publisher pushes — every write, batched, curated —
+  is publisher-local policy, not protocol.
+- Authorization runs both ways through the one mechanism: the publisher honors a
+  subscription only while a live `subscribe`-capable path covers the subscriber
+  (revoking the grant kills the feed at the next check); the subscriber ingests a
+  `PUBLISH` only if it correlates to a subscription it initiated — the initiator rule.
+  Unsolicited `PUBLISH` correlates to nothing and drops.
+- Incoming items run through the **same evaluator and quarantine discipline as
+  Gossip**: a constrained task whose only write capability is appending to the inbox
+  (`inbox/<topic>/…`, attributed frontmatter); promotion into the KB is an owner
+  action. Subscribe and gossip differ only in trigger — a feed versus the peer
+  agent's per-item judgment. The owner's accept/promote/discard actions on both are
+  the labeled signal the future recommendation policy trains on.
+- Bindings apply: "subscribe me to Alice's health stuff" resolves through the binding
+  table to every peer scope bound to my `health` topic.
+
+## Discussions
+
+`QUERY`/`ANSWER` is one-shot. Some exchanges need turns — clarification ("which
+João?"), negotiation, two agents narrowing something down together. Capability:
+`discuss`.
+
+- A discussion is a **thread**: opened by the first `SAY` (which names a scope and
+  passes the one-verifier check for `(scope, discuss)`), continued by `SAY`s
+  correlated by `thread`, ended by either side's `CLOSE` — or implicitly by turn cap
+  or timeout. Async like everything else: turns may arrive hours apart, over
+  different transports.
+- A thread is pinned at open time to `(principal, scope)`. No mid-thread scope
+  change — open another thread.
+- **Peer-initiated threads run in a conversational federation responder**: the same
+  fixed toolset (policy-filtered reads, `answer_peer`/`decline`/`escalate_to_owner`),
+  the same fan-out cap, plus a **turn budget** — `min(owner default, grant's
+  max_turns caveat)`. Each inbound `SAY` resumes the same bounded task; turns never
+  accumulate capability.
+- **Why depth matters most here.** Every peer-initiated turn is LLM inference the
+  *answering* owner pays for. A `QUERY` costs one bounded task; a discussion
+  multiplies that by turns; a *transitive* discussion multiplies it by strangers.
+  `discuss` therefore ships at the default `depth: 0` — only direct peers can open
+  threads — and delegating it should be rare, shallow, and short-lived.
+  Per-principal rate limits apply as everywhere.
 
 ## Contacts & discovery
 
@@ -238,9 +417,17 @@ of transport** — the same envelope is valid as an HTTPS POST body, an AMQP mes
 file in a polled inbox:
 
 ```
-QUERY       {id, from, to, scope, question, ttl_hops, provenance: [], token?, card_seq, sig}
+QUERY       {id, from, to, scope, question, ttl_hops, provenance: [], proof: [], card_seq, sig}
 ANSWER      {id, in_reply_to, from, answer, confidence, provenance, sig}
-DECLINE     {id, in_reply_to, reason: :no_grant | :no_answer | :timeout | :unreachable}
+DECLINE     {id, in_reply_to, reason: :no_answer | :timeout | :unreachable}
+ESCALATED   {id, in_reply_to, from, sig}    # reply-only: "a human was asked; answer may follow"
+LIST-SCOPES {id, from, to, sig}             # "which of your scopes may I see?"
+SCOPES      {id, in_reply_to, from, scopes: [{name, description?}], sig}
+SUBSCRIBE   {id, from, to, scope, proof: [], sig}    # standing feed request; needs (scope, subscribe)
+UNSUBSCRIBE {id, from, to, scope, sig}
+PUBLISH     {id, from, scope, item, provenance, sig} # honored only against a live subscription
+SAY         {id, thread, from, scope?, message, proof: [], card_seq, sig}  # first SAY opens a discussion; scope required there
+CLOSE       {id, thread, from, reason?, sig}         # either side ends a discussion
 INTRODUCE   {id, from, card: <signed contact card of a third party>, context}
 CARD-UPDATE {id, from, card}                # my endpoints/providers changed
 GOSSIP      {id, from, scope, item, why_you, provenance, sig}   # reserved — see Gossip
@@ -258,16 +445,24 @@ ESCALATE    {id, in_reply_to, question}     # internal: agent → its own human
   Unverifiable ⇒ dropped, exactly like today's unauthorized Telegram messages.
 - Replies are envelopes too: an `ANSWER` arriving hours later via a different transport
   than the `QUERY` went out on is fine — correlation is by `id`, not by connection.
+- `DECLINE`'s `:no_answer` is deliberately indistinguishable: "content exists but you
+  hold no grant" and "no such content" are the same wire answer. Deny-by-default applies
+  to the metadata channel too — a reason enum separating them would leak which scopes
+  exist to principals who weren't granted even that.
 
 ### Human escalation
 
 - **Inbound**: Alice's agent asks something my agent can't or shouldn't answer
-  autonomously (no grant covers it, or confidence is low). My agent surfaces it in my
-  Telegram — "Alice's agent asks: … [answer / decline / grant movies to Alice]" — and my
-  reply flows back as a signed `ANSWER`. An inline "grant" action makes the privacy
-  table grow organically instead of demanding upfront configuration.
-- **Outbound**: symmetric; my agent's `QUERY` may come back with `ESCALATED` status and
-  an eventual human-authored answer hours later. Hence async ids, not request/response.
+  autonomously (no grant covers it, or confidence is low). The moment my agent surfaces
+  it in my Telegram — "Alice's agent asks: … [answer / decline / grant movies to
+  Alice]" — it replies `ESCALATED`, so the asking agent knows to wait instead of timing
+  out; my eventual reply flows back as a signed `ANSWER` (or `DECLINE`) on the same
+  exchange id. An inline "grant" action makes the privacy table grow organically
+  instead of demanding upfront configuration.
+- **Outbound**: symmetric; my agent's `QUERY` may come back with an `ESCALATED`
+  envelope — sent only ever as a reply, by the target agent, when it hands the question
+  to its human — and a human-authored answer hours later. Hence async ids, not
+  request/response.
 
 ## Capability ceiling for outsiders
 
@@ -287,11 +482,13 @@ the exchange's initiator determines what its handling may do:
   write authority is mine, granted when I asked. Kelvin sending an `ANSWER` I never
   asked for correlates to nothing and is dropped.
 
-Later, subscriptions (`PUBLISH` feeds) fit the same rule: a subscription is standing
-owner intent, so incoming published items may be ingested — because I initiated the
-subscription, not because the peer pushed. Gossip (below) is the same move with the
-peer's judgment as the trigger — pre-authorized by a standing gossip grant, and confined
-to a quarantined inbox.
+Subscriptions (`PUBLISH` feeds) fit the same rule: a subscription is standing owner
+intent, so incoming published items may be ingested — because I initiated the
+subscription, not because the peer pushed. Peer-initiated discussions fit it too: each
+`SAY` resumes the same bounded answering task under a turn budget; turns never
+accumulate capability. Gossip (below) is the same move as subscriptions with the
+peer's judgment as the trigger — pre-authorized by a standing gossip grant, and
+confined to a quarantined inbox.
 
 ### Foreign content in the KB
 
@@ -396,9 +593,9 @@ What the network adds over the address book, in rough order:
 2. **Resolvable cards.** The `resolve` hint graduates into discovery: directories,
    DID resolution, webfinger-style lookup. Multiple registries can coexist because
    they only relay signed cards; they can't forge them.
-3. **Publish, not just query.** A `PUBLISH` envelope kind — signed items pushed to
-   contacts holding a scope grant (or pulled by them), turning scopes into feeds.
-   "Alice published to `movies`" is a briefing item, not a notification firehose.
+3. **Public feeds.** `SUBSCRIBE`/`PUBLISH` are core now; what the network adds is
+   `subscribe` granted to `anyone` — public scopes as open feeds. "Alice published to
+   `movies`" is a briefing item, not a notification firehose.
 4. **Reputation from provenance.** Signed provenance chains accumulate into exactly the
    data needed for web-of-trust-style discovery ("people my movie-trusted friends
    trust on movies") without any central ranking.
@@ -443,9 +640,19 @@ in any deeper, and un-baking it where it's cheap. Confirmed seams:
 ## Prior art worth stealing from
 
 - **Google A2A (agent2agent)** — agent discovery cards + task lifecycle over HTTP; the
-  envelope/lifecycle shapes map well onto QUERY/ANSWER/ESCALATE.
-- **Biscuit tokens / macaroons** — offline-attenuable capabilities; the cleanest known
-  answer to "transitive access without a central server".
+  envelope/lifecycle shapes map well onto QUERY/ANSWER/ESCALATE. Its public AgentCard
+  vs. authenticated extended-card split is the direct model for scope advertisement
+  (public scopes on the card, per-principal `SCOPES` on request).
+- **SPKI/SDSI** (Rivest & Lampson) — signed *authorization* certificates chained
+  instead of identity certs: readable statements, attenuation-only delegation, chain
+  verification. The delegation-record design is this, in JSON. Still the cleanest
+  thinking in the space.
+- **ZCAP-LD** — W3C's JSON capability chains: right shape (inspectable delegation
+  documents), wrong baggage (JSON-LD). Steal the idea, not the format.
+- **UCAN / Biscuit / macaroons** — the same idea serialized as JWTs (UCAN) or
+  caveated blobs with a Datalog dialect (Biscuit). See-also only: opaque encodings
+  defeat inspectability, and their offline-authority premise is deliberately rejected
+  here — the live grant graph stays the source of truth.
 - **PGP web of trust** — trust signatures with bounded depth are exactly the
   `transitive + max_hops` model, with 30 years of lessons about why defaults must be
   conservative.
@@ -472,5 +679,8 @@ in any deeper, and un-baking it where it's cheap. Confirmed seams:
 - Trust weights and the grant table are themselves private — never serialized to peers.
 - Provenance chains are signed per hop, or transitivity becomes an anonymization layer
   for made-up answers.
-- Revocation must exist from day one of real federation: short-lived tokens + a peer
-  blocklist beats clever revocation protocols.
+- Revocation is grant-graph reachability, checked at presentation time: a proof (or a
+  forwarded query) is honored only while a live path of sufficient-`depth` records
+  covers its chain, so revoking a peer severs everyone downstream of them. Downstream
+  revocation is expiry-bounded — delegated records are short-lived and re-issued; a
+  per-principal blocklist stays as defense in depth.
