@@ -26,7 +26,11 @@ defmodule KbaseBot.Tools.UpdateSchedule do
   def layer, do: :manager
 
   @impl true
-  def execute(input, _context) do
+  def execute(input, context) do
+    with :ok <- KbaseBot.Tool.require_owner(context), do: do_execute(input)
+  end
+
+  defp do_execute(input) do
     id = input["schedule_id"]
     now = DateTime.utc_now() |> DateTime.to_iso8601()
 

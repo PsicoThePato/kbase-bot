@@ -30,7 +30,11 @@ defmodule KbaseBot.Tools.CreateTodo do
   def layer, do: :manager
 
   @impl true
-  def execute(input, _context) do
+  def execute(input, context) do
+    with :ok <- KbaseBot.Tool.require_owner(context), do: do_execute(input)
+  end
+
+  defp do_execute(input) do
     content = input["content"]
 
     opts =

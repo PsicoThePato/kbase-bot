@@ -24,7 +24,11 @@ defmodule KbaseBot.Tools.CompleteTodo do
   def layer, do: :manager
 
   @impl true
-  def execute(%{"task_id" => id}, _context) do
+  def execute(input, context) do
+    with :ok <- KbaseBot.Tool.require_owner(context), do: do_execute(input)
+  end
+
+  defp do_execute(%{"task_id" => id}) do
     case KbaseBot.Todoist.Client.close_task(id) do
       :ok -> {:ok, "Todo #{id} completed."}
       {:error, reason} -> {:error, "Failed to complete todo: #{reason}"}

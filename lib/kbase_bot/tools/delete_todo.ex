@@ -24,7 +24,11 @@ defmodule KbaseBot.Tools.DeleteTodo do
   def layer, do: :manager
 
   @impl true
-  def execute(%{"task_id" => id}, _context) do
+  def execute(input, context) do
+    with :ok <- KbaseBot.Tool.require_owner(context), do: do_execute(input)
+  end
+
+  defp do_execute(%{"task_id" => id}) do
     case KbaseBot.Todoist.Client.delete_task(id) do
       :ok -> {:ok, "Todo #{id} deleted."}
       {:error, reason} -> {:error, "Failed to delete todo: #{reason}"}

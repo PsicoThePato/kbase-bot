@@ -27,16 +27,27 @@ defmodule KbaseBot.Tools.ReadFile do
   def layer, do: :task
 
   @impl true
-  def execute(%{"path" => path}, _context) do
+  def execute(%{"path" => path}, context) do
     repo_path = KbaseBot.Context.Server.repo_path()
     full_path = Path.join(repo_path, path)
 
     # Prevent path traversal
     if String.starts_with?(Path.expand(full_path), Path.expand(repo_path)) do
       case File.read(full_path) do
-        {:ok, content} -> {:ok, content}
-        {:error, :enoent} -> {:error, "File not found: #{path}"}
-        {:error, reason} -> {:error, "Cannot read #{path}: #{inspect(reason)}"}
+        {:ok, content} ->
+          # Deny by default: an ungranted file is indistinguishable from a
+          # missing one.
+          if KbaseBot.Policy.can_read_file?(context[:principal], path, content) do
+            {:ok, content}
+          else
+            {:error, "File not found: #{path}"}
+          end
+
+        {:error, :enoent} ->
+          {:error, "File not found: #{path}"}
+
+        {:error, reason} ->
+          {:error, "Cannot read #{path}: #{inspect(reason)}"}
       end
     else
       {:error, "Path traversal not allowed"}

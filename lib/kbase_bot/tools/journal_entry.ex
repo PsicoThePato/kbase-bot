@@ -24,7 +24,11 @@ defmodule KbaseBot.Tools.JournalEntry do
   def layer, do: :manager
 
   @impl true
-  def execute(%{"text" => text}, _context) do
+  def execute(input, context) do
+    with :ok <- KbaseBot.Tool.require_owner(context), do: do_execute(input)
+  end
+
+  defp do_execute(%{"text" => text}) do
     case KbaseBot.Journal.Writer.append_entry(text) do
       {:ok, filename, time_str} ->
         KbaseBot.Context.Server.refresh()

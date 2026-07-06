@@ -12,6 +12,7 @@ defmodule KbaseBot.Manager do
   require Logger
 
   alias KbaseBot.LLM.{Client, Prompts}
+  alias KbaseBot.Principal
   alias KbaseBot.Tasks.{Task, Session, Runner}
   alias KbaseBot.Tools.Registry
 
@@ -70,7 +71,7 @@ defmodule KbaseBot.Manager do
 
     user_content =
       "[System] Current time: #{time_str} #{now.zone_abbr} (#{day_name})\n\n" <>
-        Enum.map_join(messages, "\n", & &1)
+        Enum.map_join(messages, "\n", &entry_text/1)
 
     {:noreply, enqueue_input(state, user_content)}
   end
@@ -249,7 +250,12 @@ defmodule KbaseBot.Manager do
   end
 
   defp execute_manager_tools(tool_calls, state) do
-    context = %{chat_id: state.chat_id, manager_pid: self(), active_tasks: state.active_tasks}
+    context = %{
+      chat_id: state.chat_id,
+      manager_pid: self(),
+      active_tasks: state.active_tasks,
+      principal: Principal.owner()
+    }
 
     {results, state} =
       Enum.map_reduce(tool_calls, state, fn %{id: id, name: name, input: input}, acc_state ->
@@ -293,7 +299,13 @@ defmodule KbaseBot.Manager do
     system_prompt = Prompts.task_execution(user_profile)
 
     task = Task.new(:one_shot, description)
-    session = Session.new(task, system_prompt)
+
+    session =
+      Session.new(task, system_prompt,
+        principal: Principal.owner(),
+        notify_chat_id: state.chat_id
+      )
+
     Task.save(task)
 
     # Spawn under TaskSupervisor
@@ -336,7 +348,13 @@ defmodule KbaseBot.Manager do
         system_prompt = Prompts.task_execution(user_profile)
 
         task = Task.follow_up(task, message)
-        session = Session.new(task, system_prompt)
+
+        session =
+          Session.new(task, system_prompt,
+            principal: Principal.owner(),
+            notify_chat_id: state.chat_id
+          )
+
         Task.save(task)
 
         manager_pid = self()
@@ -434,6 +452,11 @@ defmodule KbaseBot.Manager do
   end
 
   # --- Helpers ---
+
+  # Ingress entries carry a principal since federation prep; the Manager loop
+  # is owner-only by routing, so only the text is used here.
+  defp entry_text({_principal, text}), do: text
+  defp entry_text(text) when is_binary(text), do: text
 
   defp locale, do: Application.get_env(:kbase_bot, :locale, "pt")
 

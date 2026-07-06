@@ -24,8 +24,8 @@ defmodule KbaseBot.Tools.NotifyUser do
   def layer, do: :task
 
   @impl true
-  def execute(%{"message" => message}, _context) do
-    chat_id = Application.fetch_env!(:kbase_bot, :telegram_chat_id)
+  def execute(%{"message" => message}, context) do
+    chat_id = context[:notify_chat_id] || Application.fetch_env!(:kbase_bot, :telegram_chat_id)
     KbaseBot.Telegram.send_message(chat_id, message)
     {:ok, "Notification sent."}
   end

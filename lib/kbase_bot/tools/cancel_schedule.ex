@@ -22,7 +22,11 @@ defmodule KbaseBot.Tools.CancelSchedule do
   def layer, do: :manager
 
   @impl true
-  def execute(%{"schedule_id" => id}, _context) do
+  def execute(input, context) do
+    with :ok <- KbaseBot.Tool.require_owner(context), do: do_execute(input)
+  end
+
+  defp do_execute(%{"schedule_id" => id}) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()
 
     KbaseBot.Repo.Store.execute(

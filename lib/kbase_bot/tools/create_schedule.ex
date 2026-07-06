@@ -47,7 +47,11 @@ defmodule KbaseBot.Tools.CreateSchedule do
   def layer, do: :manager
 
   @impl true
-  def execute(input, _context) do
+  def execute(input, context) do
+    with :ok <- KbaseBot.Tool.require_owner(context), do: do_execute(input)
+  end
+
+  defp do_execute(input) do
     cron = input["cron"]
     payload = input["payload"]
     timezone = Map.get(input, "timezone", "America/Sao_Paulo")

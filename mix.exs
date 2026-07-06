@@ -37,7 +37,8 @@ defmodule KbaseBot.MixProject do
       {:tzdata, "~> 1.1"},
       {:crontab, "~> 1.1"},
       {:nx, "~> 0.7"},
-      {:req, "~> 0.5"}
+      {:req, "~> 0.5"},
+      {:yaml_elixir, "~> 2.9"}
     ]
   end
 end

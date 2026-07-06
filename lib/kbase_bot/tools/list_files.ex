@@ -16,16 +16,28 @@ defmodule KbaseBot.Tools.ListFiles do
   def layer, do: :task
 
   @impl true
-  def execute(_input, _context) do
+  def execute(_input, context) do
     repo_path = KbaseBot.Context.Server.repo_path()
+    principal = context[:principal]
 
-    tree =
+    paths =
       repo_path
       |> list_tree("")
       |> Enum.sort()
-      |> Enum.join("\n")
 
-    {:ok, tree}
+    visible =
+      if KbaseBot.Principal.owner?(principal) do
+        paths
+      else
+        Enum.filter(paths, fn rel ->
+          case File.read(Path.join(repo_path, rel)) do
+            {:ok, content} -> KbaseBot.Policy.can_read_file?(principal, rel, content)
+            _ -> false
+          end
+        end)
+      end
+
+    {:ok, Enum.join(visible, "\n")}
   end
 
   defp list_tree(base_path, rel_path) do

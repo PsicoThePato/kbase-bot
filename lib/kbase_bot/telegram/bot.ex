@@ -67,8 +67,6 @@ defmodule KbaseBot.Telegram.Bot do
   def handle(_, _context), do: :ok
 
   defp authorized?(context) do
-    owner_id = Application.get_env(:kbase_bot, :telegram_chat_id)
-    user_id = context.update.message.from.id
-    user_id == owner_id
+    match?({:ok, _principal}, KbaseBot.Identity.TelegramOwner.verify(context))
   end
 end

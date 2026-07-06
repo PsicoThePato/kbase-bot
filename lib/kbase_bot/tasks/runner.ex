@@ -73,7 +73,12 @@ defmodule KbaseBot.Tasks.Runner do
             {:ok, session}
           else
             # Execute tools, send results back, loop
-            results = execute_tools(tool_calls, %{manager_pid: self()})
+            results =
+              execute_tools(tool_calls, %{
+                manager_pid: self(),
+                principal: session.principal || KbaseBot.Principal.owner(),
+                notify_chat_id: session.notify_chat_id
+              })
             session = Session.push_tool_results(session, results)
             Session.save(session)
             execute_loop(session, layer)

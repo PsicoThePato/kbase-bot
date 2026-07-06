@@ -13,8 +13,8 @@ defmodule KbaseBot.Ingress do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
-  def push(text) do
-    GenServer.cast(__MODULE__, {:push, text})
+  def push(text, meta \\ %{}) do
+    GenServer.cast(__MODULE__, {:push, text, meta})
   end
 
   # --- Server ---
@@ -25,9 +25,10 @@ defmodule KbaseBot.Ingress do
   end
 
   @impl true
-  def handle_cast({:push, text}, state) do
+  def handle_cast({:push, text, meta}, state) do
+    principal = Map.get(meta, :principal) || KbaseBot.Principal.owner()
     # Newest first; reversed at flush
-    state = %{state | buffer: [text | state.buffer]}
+    state = %{state | buffer: [{principal, text} | state.buffer]}
 
     state =
       if state.timer_ref == nil do
