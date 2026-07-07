@@ -41,6 +41,9 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.QueryPeer,
     KbaseBot.Tools.ListPeerScopes,
     KbaseBot.Tools.AnswerEscalation,
+    KbaseBot.Tools.BindTopic,
+    KbaseBot.Tools.UnbindTopic,
+    KbaseBot.Tools.ListBindings,
     # Federation — responder-only tools (layer :federation, never in
     # manager/task loops; reachable only via an explicit Session toolset)
     KbaseBot.Tools.AnswerPeer,
@@ -57,7 +60,10 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.ListGrants,
     KbaseBot.Tools.QueryPeer,
     KbaseBot.Tools.ListPeerScopes,
-    KbaseBot.Tools.AnswerEscalation
+    KbaseBot.Tools.AnswerEscalation,
+    KbaseBot.Tools.BindTopic,
+    KbaseBot.Tools.UnbindTopic,
+    KbaseBot.Tools.ListBindings
   ]
 
   @required_config Map.merge(

@@ -91,7 +91,16 @@ defmodule KbaseBot.Federation.Inbox do
   end
 
   defp route("LIST-SCOPES", from, env) do
-    scopes = Grants.granted_scopes(from) |> Enum.map(&%{"name" => &1})
+    descriptions = KbaseBot.Policy.Scopes.descriptions()
+
+    scopes =
+      Grants.granted_scopes(from)
+      |> Enum.map(fn name ->
+        case descriptions[name] do
+          nil -> %{"name" => name}
+          desc -> %{"name" => name, "description" => desc}
+        end
+      end)
 
     with {:ok, reply} <-
            Envelope.build("SCOPES", %{
@@ -191,6 +200,12 @@ defmodule KbaseBot.Federation.Inbox do
            list -> list
          end)
     )
+
+    # The translation layer's LLM-judgment step: propose topic bindings from
+    # the advertised names/descriptions (auto-bind or ask the owner).
+    Elixir.Task.Supervisor.async_nolink(KbaseBot.TaskSupervisor, fn ->
+      KbaseBot.Federation.Binder.propose(exchange.peer, env["scopes"] || [])
+    end)
 
     :ok
   end

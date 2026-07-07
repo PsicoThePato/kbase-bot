@@ -39,6 +39,14 @@ defmodule KbaseBot.Policy.Scopes do
     Enum.uniq(@catch_all ++ Enum.map(Map.get(policy, "non_grantable", []), &to_string/1))
   end
 
+  @doc "Scope descriptions from the policy file — advertised via SCOPES for the requester's binding step."
+  @spec descriptions(map() | nil) :: %{String.t() => String.t()}
+  def descriptions(policy \\ nil) do
+    (policy || load())
+    |> Map.get("scope_descriptions", %{})
+    |> Map.new(fn {k, v} -> {to_string(k), to_string(v)} end)
+  end
+
   @doc "Load `.kbase-policy.yml` from the knowledge-base root (empty map if absent)."
   @spec load() :: map()
   def load do

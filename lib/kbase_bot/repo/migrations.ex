@@ -122,6 +122,17 @@ defmodule KbaseBot.Repo.Migrations do
           closed_at TEXT,
           PRIMARY KEY (id, direction)
       )
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS bindings (
+          topic TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          peer_scope TEXT NOT NULL,
+          confidence INTEGER NOT NULL DEFAULT 0,
+          confirmed INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (topic, principal_id, peer_scope)
+      )
       """
     ]
   end

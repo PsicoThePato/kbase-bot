@@ -18,10 +18,18 @@ defmodule KbaseBot.Tools.QueryPeer do
       type: "object",
       properties: %{
         principal_id: %{type: "string", description: "The contact's principal id"},
-        scope: %{type: "string", description: "The RECIPIENT's scope label to ask under"},
+        scope: %{
+          type: "string",
+          description: "The RECIPIENT's scope label to ask under (or pass topic instead)"
+        },
+        topic: %{
+          type: "string",
+          description:
+            "YOUR topic label — resolved to the peer's scope via bindings (see list_bindings)"
+        },
         question: %{type: "string", description: "The question, composed for external ears"}
       },
-      required: ["principal_id", "scope", "question"]
+      required: ["principal_id", "question"]
     }
   end
 
@@ -29,8 +37,9 @@ defmodule KbaseBot.Tools.QueryPeer do
   def layer, do: :manager
 
   @impl true
-  def execute(%{"principal_id" => peer, "scope" => scope, "question" => question}, context) do
+  def execute(%{"principal_id" => peer, "question" => question} = input, context) do
     with :ok <- KbaseBot.Tool.require_owner(context),
+         {:ok, scope} <- resolve_scope(input, peer),
          {:ok, envelope} <-
            Envelope.build("QUERY", %{
              "to" => peer,
@@ -64,4 +73,24 @@ defmodule KbaseBot.Tools.QueryPeer do
         err
     end
   end
+
+  # Topic → peer scope through the binding table (confirmed > confidence);
+  # an explicit scope always wins.
+  defp resolve_scope(%{"scope" => scope}, _peer) when is_binary(scope) and scope != "" do
+    {:ok, scope}
+  end
+
+  defp resolve_scope(%{"topic" => topic}, peer) when is_binary(topic) and topic != "" do
+    case KbaseBot.Federation.Bindings.resolve(topic, peer) do
+      [best | _] ->
+        {:ok, best}
+
+      [] ->
+        {:error,
+         "no binding for topic \"#{topic}\" at this peer — run list_peer_scopes first, " <>
+           "bind_topic manually, or pass their scope explicitly"}
+    end
+  end
+
+  defp resolve_scope(_, _), do: {:error, "pass either scope or topic"}
 end
