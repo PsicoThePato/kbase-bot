@@ -76,18 +76,20 @@ A behaviour, so providers are swappable and peers can each demand a different on
 
 ```elixir
 defmodule KbaseBot.Identity.Provider do
-  @callback id() :: atom()                     # :age_key, :did, :telegram, :psk
+  @callback id() :: atom()                     # :ed25519, :did, :telegram, :psk
   @callback challenge(peer_hint) :: challenge
   @callback verify(assertion, challenge) :: {:ok, Principal.t()} | {:error, term()}
 end
 ```
 
 - A **Principal** is minted by a provider but stored provider-agnostically:
-  `%Principal{id: "sha256:...", provider: :age_key, display_name: "Alice", meta: %{}}`.
+  `%Principal{id: "sha256:...", provider: :ed25519, display_name: "Alice", meta: %{}}`.
   Grants and trust attach to `Principal.id`, never to transport details.
-- **First provider to build: age/SSH keypairs.** The vault is already age-encrypted, so
-  the tooling and mental model exist. A peer's identity is their public key; requests are
-  signed; verification is a signature check. No infrastructure needed.
+- **First provider to build: Ed25519 keypairs.** (age keys are X25519 — encryption-only,
+  they cannot sign; age stays for vault encryption.) A peer's identity is their public
+  key; requests are signed; verification is a signature check — OTP `:crypto` supports
+  Ed25519 natively, so no infrastructure or dependency is needed. Cards and records
+  carry the raw public key; the principal id is its sha256 fingerprint.
 - Later candidates: DIDs + verifiable credentials (standards-track, good for
   friends-of-friends who share no direct channel), Telegram account attestation
   (low-security convenience tier), pre-shared secret (testing).
@@ -370,7 +372,7 @@ forwarded by a mutual friend — without trusting that channel.
   "principal": "sha256:alice…",
   "display_name": "Alice",
   "seq": 7,
-  "identity_providers": ["age_key", "did"],
+  "identity_providers": ["ed25519", "did"],
   "endpoints": [
     {"transport": "https", "address": "https://kb.alice.dev/inbox", "priority": 1},
     {"transport": "amqp",  "address": "amqp://mq.alice.dev/kbase_inbox", "priority": 2}

@@ -33,7 +33,21 @@ defmodule KbaseBot.Policy do
     Principal.owner?(principal) or granted_read?(principal, rel_path, content)
   end
 
-  # Grants-based check (federation Phase 1): requires every scope the file
-  # carries (intersection semantics) to be covered by a live grant.
-  defp granted_read?(_principal, _rel_path, _content), do: false
+  # Intersection semantics: every scope the file carries must be covered by a
+  # live grant giving query or read. `private` can never be granted, so it
+  # short-circuits. Any failure (including the store being down) fails closed.
+  defp granted_read?(%Principal{id: id}, rel_path, content) do
+    scopes = KbaseBot.Policy.Scopes.for_file(rel_path, content)
+
+    "private" not in scopes and
+      Enum.all?(scopes, fn scope ->
+        KbaseBot.Federation.Grants.covers?(id, scope, ["query", "read"])
+      end)
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
+  end
+
+  defp granted_read?(_, _, _), do: false
 end

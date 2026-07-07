@@ -22,7 +22,11 @@ if config_env() != :test do
     embedding_poll_interval_ms:
       System.get_env("EMBEDDING_POLL_MS", "60000") |> String.to_integer(),
     todoist_api_key: System.get_env("TODOIST_API_KEY"),
-    exa_api_key: System.get_env("EXA_API_KEY")
+    exa_api_key: System.get_env("EXA_API_KEY"),
+    federation_enabled: System.get_env("FEDERATION_ENABLED", "false") == "true",
+    federation_key_path: System.get_env("FEDERATION_KEY_PATH"),
+    federation_port: System.get_env("FEDERATION_PORT", "4040") |> String.to_integer(),
+    federation_public_url: System.get_env("FEDERATION_PUBLIC_URL")
 
   if console? do
     config :kbase_bot, telegram_bot_token: nil, telegram_chat_id: 0

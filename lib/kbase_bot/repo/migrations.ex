@@ -82,6 +82,32 @@ defmodule KbaseBot.Repo.Migrations do
           calls INTEGER NOT NULL DEFAULT 0,
           alerted INTEGER NOT NULL DEFAULT 0
       )
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS contacts (
+          principal_id TEXT PRIMARY KEY,
+          display_name TEXT,
+          card_json TEXT NOT NULL,
+          card_seq INTEGER NOT NULL DEFAULT 0,
+          added_at TEXT NOT NULL,
+          notes TEXT
+      )
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS grants (
+          id TEXT PRIMARY KEY,
+          aud TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          caps_json TEXT NOT NULL,
+          caveats_json TEXT NOT NULL DEFAULT '{}',
+          record_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          revoked_at TEXT
+      )
+      """,
+      """
+      CREATE INDEX IF NOT EXISTS idx_grants_live ON grants (aud, scope)
+          WHERE revoked_at IS NULL
       """
     ]
   end
