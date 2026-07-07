@@ -36,10 +36,14 @@ defmodule KbaseBot.Policy do
   # Intersection semantics: every scope the file carries must be covered by a
   # live grant giving query or read. `private` can never be granted, so it
   # short-circuits. Any failure (including the store being down) fails closed.
+  #
+  # `query` deliberately authorizes file reads here: a query-grant responder
+  # may quote file contents verbatim in its ANSWER (owner decision, 2026-07).
+  # `read` remains the explicit raw-access capability for future direct reads.
   defp granted_read?(%Principal{id: id}, rel_path, content) do
     scopes = KbaseBot.Policy.Scopes.for_file(rel_path, content)
 
-    "private" not in scopes and
+    scopes != [] and "private" not in scopes and
       Enum.all?(scopes, fn scope ->
         KbaseBot.Federation.Grants.covers?(id, scope, ["query", "read"])
       end)

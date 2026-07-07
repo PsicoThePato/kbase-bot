@@ -9,17 +9,21 @@ defmodule KbaseBot.Federation.Discussion do
   peer's clearance.
   """
 
-  alias KbaseBot.Federation.{Contacts, Envelope, Outbound, Threads}
+  alias KbaseBot.Federation.{Contacts, Disclosures, Envelope, Outbound, OwnerNotifier, Threads}
   alias KbaseBot.LLM.Prompts
   alias KbaseBot.Principal
   alias KbaseBot.Tasks.{Runner, Session, Task}
 
   require Logger
 
+  # Reads at the peer's clearance; writes confined to the quarantine inbox
+  # (inbox_append) — a persuaded discussant can neither widen disclosure nor
+  # touch the main KB.
   @toolset [
     KbaseBot.Tools.SearchKnowledge,
     KbaseBot.Tools.ReadFile,
     KbaseBot.Tools.ListFiles,
+    KbaseBot.Tools.InboxAppend,
     KbaseBot.Tools.Say,
     KbaseBot.Tools.CloseThread,
     KbaseBot.Tools.EscalateToOwner
@@ -67,9 +71,11 @@ defmodule KbaseBot.Federation.Discussion do
   @doc """
   Owner opens a thread: the opening brief IS the first SAY (composed under
   Manager authority — the single deliberate disclosure); the subagent exists
-  only to handle replies, at the peer's clearance.
+  only to handle replies, at the peer's clearance. `mission` is a private
+  instruction for the subagent (e.g. "file any recipe you get into the
+  quarantine inbox") — it is NOT sent to the peer.
   """
-  def open_from_owner(peer_id, scope, opening) do
+  def open_from_owner(peer_id, scope, opening, mission \\ nil) do
     thread_id = Envelope.new_id()
 
     with {:ok, say} <-
@@ -80,6 +86,9 @@ defmodule KbaseBot.Federation.Discussion do
              "message" => opening
            }),
          :ok <- Outbound.deliver(say, peer_id) do
+      # The opening brief is the thread's one owner-voice disclosure.
+      Disclosures.log(peer_id, scope, "discuss-open", thread_id, opening)
+
       task =
         Task.new(
           :one_shot,
@@ -87,9 +96,9 @@ defmodule KbaseBot.Federation.Discussion do
           Your owner opened a discussion with a peer (scope: #{scope}) with this
           opening message, already sent:
           #{opening}
-
-          Pursue the owner's evident goal in the replies. You will be resumed
-          each time the peer answers.
+          #{mission_block(mission)}
+          Pursue the owner's goal in the replies. You will be resumed each time
+          the peer answers. Useful results can be filed with inbox_append.
           """
         )
 
@@ -99,23 +108,27 @@ defmodule KbaseBot.Federation.Discussion do
     end
   end
 
-  @doc "An inbound SAY on an existing open thread — budget-checked resume."
+  defp mission_block(nil), do: ""
+
+  defp mission_block(mission) do
+    "\nYour owner's private mission for this discussion (not shared with the peer):\n#{mission}\n"
+  end
+
+  @doc """
+  An inbound SAY on an existing open thread. The caller (Inbox) has already
+  claimed the turn atomically (`Threads.claim_turn/1`) and holds the
+  per-thread lock, so exactly one of these runs per thread at a time.
+  """
   def handle_say(thread, message) do
-    if thread.turn_count + 1 > thread.max_turns do
-      close_thread(thread, "turn budget exhausted")
-    else
-      Threads.increment_turns(thread.id)
+    case Task.find(thread.task_id) do
+      {:ok, task} ->
+        task = Task.follow_up(task, "Peer says (untrusted input):\n#{message}")
+        Task.save(task)
+        run_turn(%{thread | task_id: thread.task_id}, task)
 
-      case Task.find(thread.task_id) do
-        {:ok, task} ->
-          task = Task.follow_up(task, "Peer says (untrusted input):\n#{message}")
-          Task.save(task)
-          run_turn(%{thread | task_id: thread.task_id}, task)
-
-        _ ->
-          Logger.warning("Federation discussion #{thread.id}: task missing")
-          close_thread(thread, "internal error")
-      end
+      _ ->
+        Logger.warning("Federation discussion #{thread.id}: task missing")
+        close_thread(thread, "internal error")
     end
   end
 
@@ -123,7 +136,9 @@ defmodule KbaseBot.Federation.Discussion do
   def peer_closed(thread, reason) do
     Threads.close(thread.id)
 
-    KbaseBot.Ingress.push(
+    # transcript_tail is OUR discussant's own last line (confined output);
+    # the peer's reason is short. Owner notification only — never the Manager.
+    OwnerNotifier.notify_owner(
       "[Federation] #{peer_name(thread.principal_id)} closed discussion #{thread.id}" <>
         if(reason, do: " (#{reason})", else: "") <> transcript_tail(thread)
     )
@@ -144,7 +159,9 @@ defmodule KbaseBot.Federation.Discussion do
 
     Threads.close(thread.id)
 
-    KbaseBot.Ingress.push(
+    # `reason` here is one of OUR strings ("turn budget exhausted", ...);
+    # transcript_tail is our discussant's own output. Owner notification only.
+    OwnerNotifier.notify_owner(
       "[Federation] Discussion #{thread.id} with #{peer_name(thread.principal_id)} " <>
         "closed (#{reason})." <> transcript_tail(thread)
     )
@@ -181,7 +198,10 @@ defmodule KbaseBot.Federation.Discussion do
           thread_id: thread.id,
           peer_id: thread.principal_id,
           scope: thread.scope,
-          exchange_id: thread.id
+          exchange_id: thread.id,
+          # For inbox_append: file under inbox/<scope>/ attributed to the peer.
+          publisher_id: thread.principal_id,
+          topic: thread.scope
         }
       )
 

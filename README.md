@@ -110,6 +110,68 @@ user, `PROMPTS_DIR` overrides the prompt directory, `MODEL` selects the Claude m
 `TIMEZONE`/`LOCALE` localize the bot's clock. Only the Anthropic and Telegram
 credentials are required; every other integration is optional.
 
+## Deploying with Nix
+
+The flake builds a self-contained OTP release (ERTS included, SQLite NIF compiled
+hermetically) and ships service modules for every kind of machine. One rule
+everywhere: the Nix store is read-only, so the bot's writable state — SQLite db
+(`DB_PATH`), knowledge base (`REPO_PATH`), tzdata cache — must live outside the
+package. The modules below wire all of that for you.
+
+**Any machine with Nix** (Linux or macOS), foreground:
+
+```sh
+set -a && source .env && set +a
+export DB_PATH=~/.local/share/kbase-bot/repo.db REPO_PATH=~/my/knowledge_base
+export RELEASE_DISTRIBUTION=none RELEASE_COOKIE=any   # no clustering; Nix strips the cookie
+nix run github:PsicoThePato/kbase-bot -- start
+```
+
+**NixOS** — system service (dedicated user, systemd hardening):
+
+```nix
+# flake inputs: kbase-bot.url = "github:PsicoThePato/kbase-bot";
+imports = [ inputs.kbase-bot.nixosModules.default ];
+
+services.kbase-bot = {
+  enable = true;
+  environmentFile = "/run/secrets/kbase-bot.env";  # TELEGRAM_*, ANTHROPIC_API_KEY, …
+  # federationPort = 4040; openFirewall = true;    # if federating
+};
+```
+
+State lives in `/var/lib/kbase-bot`; put your (decrypted) knowledge base at
+`/var/lib/kbase-bot/knowledge_base` or point `REPO_PATH` elsewhere via
+`extraEnvironment`.
+
+**MacBook or any non-NixOS Linux** — user service via
+[Home Manager](https://github.com/nix-community/home-manager) (launchd agent on
+macOS, systemd user unit on Linux — same options):
+
+```nix
+imports = [ inputs.kbase-bot.homeModules.default ];
+
+services.kbase-bot = {
+  enable = true;
+  environmentFile = "${config.home.homeDirectory}/.config/kbase-bot/secrets.env";
+  repoPath = "${config.home.homeDirectory}/personal/knowledge_base";
+};
+```
+
+On Linux, `loginctl enable-linger $USER` keeps it running after logout. On macOS,
+logs land in `~/.local/share/kbase-bot/kbase-bot.log`.
+
+Releases can't run mix tasks, so generate a federation identity on a deployed
+machine with the release itself:
+
+```sh
+kbase_bot eval 'KbaseBot.Identity.Keys.generate_to("/var/lib/kbase-bot/identity.json")'
+```
+
+After changing `mix.lock`, recompute the vendored-deps hash
+(`nix build .#kbase-bot.mixFodDeps` and copy the `got:` value into `flake.nix`) —
+a stale hash silently reuses old deps.
+
 ## Optional integrations
 
 Each integration activates when its env var is set; without it, the related tools

@@ -2,14 +2,14 @@ defmodule KbaseBot.Tools.QueryPeer do
   @moduledoc false
   @behaviour KbaseBot.Tool
 
-  alias KbaseBot.Federation.{Envelope, Exchanges, Outbound}
+  alias KbaseBot.Federation.{Disclosures, Envelope, Exchanges, Outbound}
 
   @impl true
   def name, do: "query_peer"
 
   @impl true
   def description do
-    "Ask a federated peer's agent a question in one of THEIR scopes (see list_peer_scopes). Async: the answer arrives later as a [Federation] message. Compose the question for external ears — it leaves this bot."
+    "Ask a federated peer's agent a question in one of THEIR scopes (see list_peer_scopes). Async: when the answer arrives, a confined subagent limited to that peer's permissions processes it and reports to the owner directly — you never see the answer yourself. If the owner wants the answer actively worked on or negotiated, use discuss_peer with a mission instead. Compose the question for external ears — it leaves this bot."
   end
 
   @impl true
@@ -53,17 +53,12 @@ defmodule KbaseBot.Tools.QueryPeer do
 
       case Outbound.deliver(envelope, peer) do
         :ok ->
+          # The question itself leaves this bot — that's a disclosure too.
+          Disclosures.log(peer, scope, "query", envelope["id"], question)
           {:ok, "Query sent (exchange #{envelope["id"]}). The answer arrives asynchronously."}
 
         {:error, :unknown_contact} ->
           {:error, "unknown contact #{peer} — add them first"}
-
-        {:error, :unreachable} ->
-          Exchanges.set_state("out", envelope["id"], "closed")
-          {:error, "contact is unreachable (no shared transport)"}
-
-        {:error, reason} ->
-          {:error, "delivery failed: #{inspect(reason)}"}
       end
     else
       {:error, :no_identity} ->

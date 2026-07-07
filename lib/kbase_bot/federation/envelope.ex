@@ -14,7 +14,14 @@ defmodule KbaseBot.Federation.Envelope do
 
   def known_kind?(kind), do: kind in @kinds
 
-  @doc "Build and sign an envelope from this bot's identity."
+  @doc """
+  Build and sign an envelope from this bot's identity.
+
+  Every envelope carries a signed issued-at (`ts`, unix seconds) and a fresh
+  `id`. Receivers drop envelopes whose id they have already accepted and
+  envelopes older than the freshness window — replay protection without
+  breaking late delivery (an ANSWER hours later still correlates by id).
+  """
   @spec build(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def build(kind, fields) when is_map(fields) do
     with {:ok, {_pub, priv}} <- Keys.own_keypair(),
@@ -24,6 +31,7 @@ defmodule KbaseBot.Federation.Envelope do
           "v" => 1,
           "kind" => kind,
           "id" => Map.get(fields, "id", new_id()),
+          "ts" => Map.get(fields, "ts", System.os_time(:second)),
           "from" => from
         })
 

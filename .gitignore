@@ -22,3 +22,6 @@ priv/repo.db-*
 
 # OS
 .DS_Store
+
+# ExUnit @tag :tmp_dir artifacts (left behind by design for post-failure inspection)
+/tmp/

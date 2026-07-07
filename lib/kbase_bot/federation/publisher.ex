@@ -7,7 +7,7 @@ defmodule KbaseBot.Federation.Publisher do
   pushes too).
   """
 
-  alias KbaseBot.Federation.{Envelope, Grants, Outbound, Subscriptions}
+  alias KbaseBot.Federation.{Disclosures, Envelope, Grants, Outbound, Subscriptions}
   alias KbaseBot.Identity.Keys
   alias KbaseBot.Policy.Scopes
 
@@ -74,6 +74,7 @@ defmodule KbaseBot.Federation.Publisher do
           {:ok, envelope} ->
             case Outbound.deliver(envelope, peer) do
               :ok ->
+                Disclosures.log(peer, scope, "publish", envelope["id"], item["path"])
                 :delivered
 
               {:error, reason} ->

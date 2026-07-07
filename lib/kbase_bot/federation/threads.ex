@@ -45,6 +45,36 @@ defmodule KbaseBot.Federation.Threads do
     :ok
   end
 
+  @doc """
+  Atomically claim one turn: increments the counter only while the thread is
+  open and under budget, in a single statement — two concurrent SAYs can
+  never both pass a stale check-then-increment. `:exhausted` means open but
+  out of budget (caller should close); `:unavailable` means closed/missing.
+  """
+  @spec claim_turn(String.t()) :: :ok | :exhausted | :unavailable
+  def claim_turn(id) do
+    case KbaseBot.Repo.Store.query(
+           """
+           UPDATE threads SET turn_count = turn_count + 1
+           WHERE id = ?1 AND state = 'open' AND turn_count < max_turns
+           RETURNING turn_count
+           """,
+           [id]
+         ) do
+      {:ok, [[_count]]} ->
+        :ok
+
+      {:ok, []} ->
+        case find(id) do
+          {:ok, %{state: "open"}} -> :exhausted
+          _ -> :unavailable
+        end
+
+      _ ->
+        :unavailable
+    end
+  end
+
   @spec close(String.t()) :: :ok
   def close(id) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()

@@ -1,42 +1,36 @@
 defmodule KbaseBot.Federation.Outbound do
   @moduledoc """
   Deliver an envelope to a peer: walk their card's endpoint list top-down and
-  use the first transport we speak. No shared transport ⇒ surfaced, not
-  silently dropped.
+  use the first transport we speak. A failed first attempt is not a loss —
+  the envelope is parked in the durable OutboundQueue and retried with
+  backoff (the protocol is async; correlation is by id, not by timing), so
+  `:ok` means "delivered or durably queued". Only an unknown contact is a
+  hard error: with no card there is nowhere to ever deliver.
   """
 
-  alias KbaseBot.Federation.{Contacts, Transport}
+  alias KbaseBot.Federation.{Contacts, OutboundQueue}
 
   require Logger
 
-  @spec deliver(map(), String.t()) :: :ok | {:error, term()}
+  @spec deliver(map(), String.t()) :: :ok | {:error, :unknown_contact}
   def deliver(envelope, peer_id) do
-    with {:ok, %{card: card}} <- Contacts.find(peer_id) do
-      endpoints =
-        (card["endpoints"] || [])
-        |> Enum.sort_by(fn ep -> ep["priority"] || 99 end)
+    case Contacts.find(peer_id) do
+      {:ok, _contact} ->
+        case OutboundQueue.attempt(envelope, peer_id) do
+          :ok ->
+            :ok
 
-      attempt(envelope, endpoints, peer_id)
-    else
-      _ -> {:error, :unknown_contact}
-    end
-  end
+          {:error, reason} ->
+            Logger.info(
+              "Federation: delivery to #{peer_id} failed (#{inspect(reason)}) — queued for retry"
+            )
 
-  defp attempt(_envelope, [], peer_id) do
-    Logger.warning("Federation: no usable transport for #{peer_id} — contact unreachable")
-    {:error, :unreachable}
-  end
-
-  defp attempt(envelope, [endpoint | rest], peer_id) do
-    case Transport.adapter(endpoint["transport"]) do
-      nil ->
-        attempt(envelope, rest, peer_id)
-
-      adapter ->
-        case adapter.deliver(envelope, endpoint) do
-          :ok -> :ok
-          {:error, _reason} -> attempt(envelope, rest, peer_id)
+            OutboundQueue.enqueue(envelope, peer_id, reason)
+            :ok
         end
+
+      _ ->
+        {:error, :unknown_contact}
     end
   end
 end

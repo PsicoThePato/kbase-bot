@@ -11,9 +11,11 @@ defmodule KbaseBot.Federation.Exchanges do
   def open(direction, id, kind, peer, scope, question) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()
 
+    # OR IGNORE, not OR REPLACE: an id reuse must never flip an answered
+    # exchange back to open (the first envelope wins; ids are single-use).
     KbaseBot.Repo.Store.execute(
       """
-      INSERT OR REPLACE INTO exchanges (id, direction, kind, peer, scope, question, state, opened_at)
+      INSERT OR IGNORE INTO exchanges (id, direction, kind, peer, scope, question, state, opened_at)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', ?7)
       """,
       [id, direction, kind, peer, scope, question, now]

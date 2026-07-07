@@ -2,7 +2,7 @@ defmodule KbaseBot.Tools.AnswerPeer do
   @moduledoc false
   @behaviour KbaseBot.Tool
 
-  alias KbaseBot.Federation.{Envelope, Exchanges, Outbound}
+  alias KbaseBot.Federation.{Disclosures, Envelope, Exchanges, Outbound}
   alias KbaseBot.Identity.Keys
 
   @impl true
@@ -49,6 +49,7 @@ defmodule KbaseBot.Tools.AnswerPeer do
            }),
          :ok <- Outbound.deliver(envelope, peer_id) do
       Exchanges.set_state("in", exchange_id, "answered")
+      Disclosures.log(peer_id, context[:scope], "answer", exchange_id, answer)
       {:ok, "Answer delivered to peer."}
     else
       _ -> {:error, "could not deliver answer"}

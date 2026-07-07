@@ -8,7 +8,19 @@ defmodule KbaseBot.KB.Frontmatter do
   Returns `{:ok, meta, body}` or `:none`.
   """
   @spec parse(binary()) :: {:ok, map(), binary()} | :none
-  def parse("---\n" <> rest) do
+  def parse(content) when is_binary(content) do
+    # A BOM or CRLF line endings must not hide an explicit label: a file
+    # saved on Windows whose frontmatter says `scopes: [private]` has to
+    # parse, or it silently falls through to a possibly-wider path default.
+    content
+    |> strip_bom()
+    |> String.replace("\r\n", "\n")
+    |> do_parse()
+  end
+
+  def parse(_), do: :none
+
+  defp do_parse("---\n" <> rest) do
     case String.split(rest, "\n---", parts: 2) do
       [yaml, body] ->
         case YamlElixir.read_from_string(yaml) do
@@ -21,7 +33,10 @@ defmodule KbaseBot.KB.Frontmatter do
     end
   end
 
-  def parse(_), do: :none
+  defp do_parse(_), do: :none
+
+  defp strip_bom("\uFEFF" <> rest), do: rest
+  defp strip_bom(content), do: content
 
   @doc "The `scopes:` list from frontmatter, or nil when absent/unlabeled."
   @spec scopes(binary()) :: [String.t()] | nil

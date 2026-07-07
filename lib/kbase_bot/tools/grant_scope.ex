@@ -2,14 +2,14 @@ defmodule KbaseBot.Tools.GrantScope do
   @moduledoc false
   @behaviour KbaseBot.Tool
 
-  alias KbaseBot.Federation.Grants
+  alias KbaseBot.Federation.{Circles, Grants}
 
   @impl true
   def name, do: "grant_scope"
 
   @impl true
   def description do
-    "Grant a contact (or 'anyone' for public) capabilities on a knowledge-base scope. Deny-by-default: nothing is shared until granted. medical/private and other flagged scopes can never be granted."
+    "Grant a contact (or 'anyone' for public, or circle:<name> for every current member of a circle) capabilities on a knowledge-base scope. Deny-by-default: nothing is shared until granted. medical/private and other flagged scopes can never be granted. Consider preview_grant first to see the blast radius."
   end
 
   @impl true
@@ -19,7 +19,8 @@ defmodule KbaseBot.Tools.GrantScope do
       properties: %{
         principal_id: %{
           type: "string",
-          description: "Contact principal id (sha256:...) or 'anyone' for a public grant"
+          description:
+            "Contact principal id (sha256:...), 'anyone' for a public grant, or circle:<name> to grant to each current member"
         },
         scope: %{type: "string", description: "Scope label to grant, e.g. movies"},
         caps: %{
@@ -62,21 +63,52 @@ defmodule KbaseBot.Tools.GrantScope do
             %{}
         end
 
-      case Grants.create(input["principal_id"], input["scope"], caps_map, caveats) do
-        {:ok, id} ->
-          {:ok,
-           "Grant #{id}: #{input["principal_id"]} may #{Enum.join(caps, "/")} " <>
-             "on #{input["scope"]} (depth #{depth}#{expiry_note(caveats)})."}
+      principal = input["principal_id"]
 
-        {:error, :no_identity} ->
-          {:error, "no federation identity configured (FEDERATION_KEY_PATH)"}
+      if Circles.ref?(principal) do
+        grant_circle(Circles.ref_name(principal), input["scope"], caps, caps_map, caveats, depth)
+      else
+        case Grants.create(principal, input["scope"], caps_map, caveats) do
+          {:ok, id} ->
+            {:ok,
+             "Grant #{id}: #{principal} may #{Enum.join(caps, "/")} " <>
+               "on #{input["scope"]} (depth #{depth}#{expiry_note(caveats)})."}
 
-        {:error, reason} when is_binary(reason) ->
-          {:error, reason}
+          {:error, :no_identity} ->
+            {:error, "no federation identity configured (FEDERATION_KEY_PATH)"}
 
-        {:error, reason} ->
-          {:error, "could not create grant: #{inspect(reason)}"}
+          {:error, reason} when is_binary(reason) ->
+            {:error, reason}
+
+          {:error, reason} ->
+            {:error, "could not create grant: #{inspect(reason)}"}
+        end
       end
+    end
+  end
+
+  # One ordinary signed grant per current member — the circle itself never
+  # appears in a record, so the live grant table stays the only authority.
+  defp grant_circle(name, scope, caps, caps_map, caveats, depth) do
+    case Circles.members(name) do
+      [] ->
+        {:error, "circle #{name} is empty or unknown (see list_circles)"}
+
+      members ->
+        results = Enum.map(members, &{&1, Grants.create(&1, scope, caps_map, caveats)})
+
+        granted = for {member, {:ok, id}} <- results, do: "#{id} → #{member}"
+        failed = for {member, {:error, reason}} <- results, do: "#{member}: #{inspect(reason)}"
+
+        summary =
+          "Granted #{Enum.join(caps, "/")} on #{scope} (depth #{depth}#{expiry_note(caveats)}) " <>
+            "to #{length(granted)}/#{length(members)} member(s) of #{name}:\n" <>
+            Enum.join(granted, "\n")
+
+        case failed do
+          [] -> {:ok, summary}
+          failures -> {:ok, summary <> "\nFailed:\n" <> Enum.join(failures, "\n")}
+        end
     end
   end
 

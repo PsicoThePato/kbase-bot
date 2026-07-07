@@ -7,7 +7,7 @@ defmodule KbaseBot.Tools.InboxAppend do
 
   @impl true
   def description do
-    "File a pushed item into the quarantine inbox (inbox/<topic>/) as quoted, attributed content. This is your ONLY write; the main knowledge base is out of reach. Skip calling it to drop the item."
+    "File an item into the quarantine inbox (inbox/<topic>/) as quoted, attributed content. This is your ONLY write; the main knowledge base is out of reach. The owner reviews and promotes inbox items themselves."
   end
 
   @impl true

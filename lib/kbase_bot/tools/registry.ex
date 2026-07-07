@@ -49,6 +49,16 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.ListSubscriptions,
     KbaseBot.Tools.PublishItem,
     KbaseBot.Tools.DiscussPeer,
+    KbaseBot.Tools.PreviewGrant,
+    KbaseBot.Tools.ReviewDisclosures,
+    KbaseBot.Tools.EditCircle,
+    KbaseBot.Tools.ListCircles,
+    KbaseBot.Tools.ReviewInbox,
+    KbaseBot.Tools.PromoteInboxItem,
+    KbaseBot.Tools.DiscardInboxItem,
+    KbaseBot.Tools.ShowTrustSignals,
+    KbaseBot.Tools.RotateIdentity,
+    KbaseBot.Tools.ListPendingDeliveries,
     # Federation — constrained-loop tools (layer :federation, never in
     # manager/task loops; reachable only via an explicit Session toolset)
     KbaseBot.Tools.AnswerPeer,
@@ -76,7 +86,17 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.UnsubscribePeer,
     KbaseBot.Tools.ListSubscriptions,
     KbaseBot.Tools.PublishItem,
-    KbaseBot.Tools.DiscussPeer
+    KbaseBot.Tools.DiscussPeer,
+    KbaseBot.Tools.PreviewGrant,
+    KbaseBot.Tools.ReviewDisclosures,
+    KbaseBot.Tools.EditCircle,
+    KbaseBot.Tools.ListCircles,
+    KbaseBot.Tools.ReviewInbox,
+    KbaseBot.Tools.PromoteInboxItem,
+    KbaseBot.Tools.DiscardInboxItem,
+    KbaseBot.Tools.ShowTrustSignals,
+    KbaseBot.Tools.RotateIdentity,
+    KbaseBot.Tools.ListPendingDeliveries
   ]
 
   @required_config Map.merge(

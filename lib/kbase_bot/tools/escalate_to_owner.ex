@@ -46,9 +46,18 @@ defmodule KbaseBot.Tools.EscalateToOwner do
           _ -> peer_id
         end
 
-      KbaseBot.Ingress.push(
-        "[Federation] #{peer_name}'s agent asks (exchange #{exchange_id}):\n#{question}\n" <>
-          "Reply with the answer_escalation tool (exchange_id: #{exchange_id}) or leave it."
+      # `question` was composed by THIS confined responder (peer clearance),
+      # so it is already mediated — it goes to the owner only, never the
+      # Manager. The owner answers by telling their assistant, quoting the
+      # exchange id from this message (which answer_escalation then uses).
+      alias KbaseBot.Federation.OwnerNotifier
+
+      safe_id = OwnerNotifier.safe_token(exchange_id)
+
+      OwnerNotifier.notify_owner(
+        "[Federation] #{peer_name}'s agent asks (exchange #{safe_id}):\n#{question}\n" <>
+          "To answer, tell your assistant (it will use answer_escalation, exchange #{safe_id}); " <>
+          "or leave it."
       )
 
       {:ok, "Escalated to owner; the peer was told a human will answer later."}

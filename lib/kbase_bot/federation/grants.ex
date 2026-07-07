@@ -89,6 +89,43 @@ defmodule KbaseBot.Federation.Grants do
     end
   end
 
+  @doc """
+  Re-issue every live grant held by `old_aud` to `new_aud` (key rotation).
+  A grant is a signed record, so it can't be re-keyed in place: each one is
+  authored fresh — same scope, caps, caveats — and the old one revoked only
+  once the replacement exists (fail toward duplicate authority for the same
+  human, never toward dropped access).
+  """
+  @spec reissue(String.t(), String.t()) :: {:ok, non_neg_integer()}
+  def reissue(old_aud, new_aud) do
+    count =
+      all_live()
+      |> Enum.filter(fn r -> r["aud"] == old_aud end)
+      |> Enum.count(fn r ->
+        case create(new_aud, r["scope"], r["caps"], r["caveats"] || %{}) do
+          {:ok, _id} ->
+            revoke_live(old_aud, r["scope"])
+            true
+
+          {:error, reason} ->
+            require Logger
+            Logger.warning("Grant re-issue for #{r["scope"]} failed: #{inspect(reason)}")
+            false
+        end
+      end)
+
+    {:ok, count}
+  end
+
+  defp revoke_live(aud, scope) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    KbaseBot.Repo.Store.execute(
+      "UPDATE grants SET revoked_at = ?1 WHERE aud = ?2 AND scope = ?3 AND revoked_at IS NULL",
+      [now, aud, scope]
+    )
+  end
+
   @doc "Does a live, unexpired grant give `principal_id` any of `caps` on `scope`?"
   @spec covers?(String.t(), String.t(), [String.t()]) :: boolean()
   def covers?(principal_id, scope, caps) when is_list(caps) do

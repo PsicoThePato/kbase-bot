@@ -30,10 +30,15 @@ defmodule KbaseBot.Federation.Binder do
           end)
 
           Enum.each(ask, fn p ->
-            KbaseBot.Ingress.push(
+            # This binder is itself a confined, toolless classifier whose
+            # output is validated against our own vocabulary; its proposals
+            # reach the owner only, never the Manager loop. The owner confirms
+            # by telling the assistant, quoting the scope name themselves.
+            KbaseBot.Federation.OwnerNotifier.notify_owner(
               "[Federation] Possible binding at #{peer_id}: their scope " <>
                 "\"#{p["peer_scope"]}\" ≈ your topic \"#{p["topic"]}\" " <>
-                "(confidence #{p["confidence"]}%). Confirm with bind_topic or ignore."
+                "(confidence #{p["confidence"]}%). To accept, tell your assistant to " <>
+                "bind it (it will use bind_topic); otherwise ignore."
             )
           end)
 

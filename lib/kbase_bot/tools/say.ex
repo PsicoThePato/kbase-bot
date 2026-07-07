@@ -2,7 +2,7 @@ defmodule KbaseBot.Tools.Say do
   @moduledoc false
   @behaviour KbaseBot.Tool
 
-  alias KbaseBot.Federation.{Envelope, Outbound}
+  alias KbaseBot.Federation.{Disclosures, Envelope, Outbound}
 
   @impl true
   def name, do: "say"
@@ -35,6 +35,7 @@ defmodule KbaseBot.Tools.Say do
          {:ok, envelope} <-
            Envelope.build("SAY", %{"thread" => thread_id, "to" => peer_id, "message" => message}),
          :ok <- Outbound.deliver(envelope, peer_id) do
+      Disclosures.log(peer_id, context[:scope], "say", thread_id, message)
       {:ok, "Sent. Now stop — you will be resumed when the peer replies."}
     else
       _ -> {:error, "could not deliver message"}

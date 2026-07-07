@@ -150,6 +150,14 @@ defmodule KbaseBot.Repo.Migrations do
       )
       """,
       """
+      CREATE TABLE IF NOT EXISTS seen_envelopes (
+          peer TEXT NOT NULL,
+          envelope_id TEXT NOT NULL,
+          seen_at TEXT NOT NULL,
+          PRIMARY KEY (peer, envelope_id)
+      )
+      """,
+      """
       CREATE TABLE IF NOT EXISTS bindings (
           topic TEXT NOT NULL,
           principal_id TEXT NOT NULL,
@@ -158,6 +166,74 @@ defmodule KbaseBot.Repo.Migrations do
           confirmed INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL,
           PRIMARY KEY (topic, principal_id, peer_scope)
+      )
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS disclosures (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          peer TEXT NOT NULL,
+          scope TEXT,
+          kind TEXT NOT NULL,
+          ref_id TEXT,
+          summary TEXT NOT NULL,
+          created_at TEXT NOT NULL
+      )
+      """,
+      """
+      CREATE INDEX IF NOT EXISTS idx_disclosures_peer ON disclosures (peer, created_at)
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS outbound_queue (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          peer TEXT NOT NULL,
+          envelope_json TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'queued',
+          attempts INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at TEXT NOT NULL,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          delivered_at TEXT
+      )
+      """,
+      """
+      CREATE INDEX IF NOT EXISTS idx_outbound_queue_due ON outbound_queue (next_attempt_at)
+          WHERE state = 'queued'
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS peer_delivery_alerts (
+          peer TEXT PRIMARY KEY,
+          alerted_at TEXT NOT NULL
+      )
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS circles (
+          name TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          added_at TEXT NOT NULL,
+          PRIMARY KEY (name, principal_id)
+      )
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS trust_signals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          principal_id TEXT NOT NULL,
+          topic TEXT NOT NULL,
+          item TEXT NOT NULL,
+          action TEXT NOT NULL,
+          created_at TEXT NOT NULL
+      )
+      """,
+      """
+      CREATE INDEX IF NOT EXISTS idx_trust_signals_principal
+          ON trust_signals (principal_id, topic)
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS peer_llm_usage (
+          month TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          loops INTEGER NOT NULL DEFAULT 0,
+          alerted INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (month, principal_id)
       )
       """
     ]

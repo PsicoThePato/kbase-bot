@@ -28,6 +28,13 @@ defmodule KbaseBot.Identity.Keys do
     end
   end
 
+  @doc "Drop the cached keypair (key file changed, e.g. after a rotation)."
+  @spec reset_cache() :: :ok
+  def reset_cache do
+    :persistent_term.erase(@cache_key)
+    :ok
+  end
+
   @spec own_principal_id() :: {:ok, String.t()} | {:error, term()}
   def own_principal_id do
     with {:ok, {pub, _priv}} <- own_keypair(), do: {:ok, fingerprint(pub)}

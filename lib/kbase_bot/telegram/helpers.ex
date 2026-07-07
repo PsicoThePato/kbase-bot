@@ -8,10 +8,17 @@ defmodule KbaseBot.Telegram do
   @max_message_length 4096
 
   def send_message(chat_id, text) do
-    if Application.get_env(:kbase_bot, :console_mode, false) do
-      KbaseBot.Console.print(text)
-    else
-      deliver(chat_id, text)
+    cond do
+      # Test sink: observe owner-facing messages without touching Telegram.
+      is_pid(sink = Application.get_env(:kbase_bot, :message_sink)) ->
+        send(sink, {:telegram, chat_id, text})
+        :ok
+
+      Application.get_env(:kbase_bot, :console_mode, false) ->
+        KbaseBot.Console.print(text)
+
+      true ->
+        deliver(chat_id, text)
     end
   end
 

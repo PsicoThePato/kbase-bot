@@ -35,6 +35,18 @@ defmodule KbaseBot.Policy.ScopesTest do
     test "empty policy still yields private" do
       assert Scopes.for_file("anything.md", "x", %{}) == ["private"]
     end
+
+    test "explicit empty scope list fails closed to private" do
+      # scopes: [] would otherwise pass intersection checks vacuously and be
+      # readable by any principal.
+      content = "---\nscopes: []\n---\nbody"
+      assert Scopes.for_file("ttrpg/notes.md", content, @policy) == ["private"]
+    end
+
+    test "empty path-default scope list fails closed to private" do
+      policy = %{"defaults" => %{"**" => %{"scopes" => []}}}
+      assert Scopes.for_file("anything.md", "x", policy) == ["private"]
+    end
   end
 
   describe "glob_match?/2" do

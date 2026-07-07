@@ -9,7 +9,7 @@ defmodule KbaseBot.Tools.ListPeerScopes do
 
   @impl true
   def description do
-    "Ask a peer which of their scopes are visible to us (grant-gated). Async: the list arrives later as a [Federation] message."
+    "Ask a peer which of their scopes are visible to us (grant-gated). Async: the list is relayed to the owner's chat directly; you get a metadata note, and binding proposals may follow (see list_bindings)."
   end
 
   @impl true

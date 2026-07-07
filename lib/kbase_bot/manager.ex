@@ -453,10 +453,36 @@ defmodule KbaseBot.Manager do
 
   # --- Helpers ---
 
-  # Ingress entries carry a principal since federation prep; the Manager loop
-  # is owner-only by routing, so only the text is used here.
-  defp entry_text({_principal, text}), do: text
-  defp entry_text(text) when is_binary(text), do: text
+  # Ingress entries carry a principal. By construction only owner-authored
+  # text reaches the Manager — federation events never enter this loop at all
+  # (peer interactions are handled by confined subagents at peer clearance;
+  # the owner sees their output on Telegram). So a non-owner entry is not
+  # "untrusted input to be careful with": it means that invariant was
+  # breached upstream. We drop the content to an inert marker rather than
+  # forward it — the Manager's context cannot be a place peer prose lands.
+  # Public for tests only.
+  @doc false
+  def entry_text({%Principal{} = principal, text}) do
+    if Principal.owner?(principal) do
+      text
+    else
+      Logger.error("Manager ingress: non-owner entry from #{principal.id} — dropped (bug)")
+      redacted(principal.id)
+    end
+  end
+
+  def entry_text({_principal, _text}) do
+    Logger.error("Manager ingress: entry with a malformed principal — dropped (bug)")
+    redacted("an unknown source")
+  end
+
+  def entry_text(text) when is_binary(text), do: text
+
+  defp redacted(source) do
+    "[System] A federation message from #{source} was routed to the assistant loop " <>
+      "instead of relayed to you, and was dropped as a safety measure. This is a bug — " <>
+      "the content did not reach the assistant."
+  end
 
   defp locale, do: Application.get_env(:kbase_bot, :locale, "pt")
 

@@ -49,7 +49,7 @@ Everything hangs off six nouns:
 | **Principal** | A stable identity for a person-or-agent pair. Canonical form: a public-key fingerprint plus display metadata. The owner is a principal too (the superuser). |
 | **Contact** | The owner-side record of a known peer: a principal plus its current contact card (endpoints, accepted identity providers), a human-friendly name, and links to its grants and trust entries. The address book. |
 | **Scope** | A label attached to knowledge (`movies`, `training`, `medical`). Content carries scopes; grants are expressed against scopes, never against raw paths. Scope names are **recipient-local**: on the wire they always refer to the answering peer's namespace. |
-| **Grant** | A **signed delegation record** `{iss, aud, scope, caps, caveats, sig}` — what a principal may *do*: `query` (ask questions answered from that scope), `read` (see excerpts), `subscribe` (standing feed), `discuss` (open threads). Every capability carries a **`depth`**: how many further delegation edges may follow it (default 0 — not delegable). The owner's grants table is simply the set of records where `iss` = owner; peers author the same shape when they delegate. |
+| **Grant** | A **signed delegation record** `{iss, aud, scope, caps, caveats, sig}` — what a principal may *do*: `query` (ask questions answered from that scope; answers may quote file contents verbatim — a deliberate call, not a leak: `query` governs *what the responder may draw on*, `read` is reserved for direct raw-file access), `subscribe` (standing feed), `discuss` (open threads). Every capability carries a **`depth`**: how many further delegation edges may follow it (default 0 — not delegable). The owner's grants table is simply the set of records where `iss` = owner; peers author the same shape when they delegate. |
 | **Trust** | `(principal, topic, weight, transitive?)` — how much the owner's agent should *believe* that principal on a topic when aggregating answers. Topics are the owner's own private labels for domains of belief; they never travel on the wire. |
 | **Provenance** | The signed chain of principals an answer travelled through (`me ← alice ← carol`), carried on every federated response. |
 
@@ -98,6 +98,39 @@ end
 
 The current Telegram auth gate (`kbase_bot/lib/kbase_bot/telegram/bot.ex:69-73`) becomes
 just one provider: "matches owner chat id" → owner principal.
+
+### Key rotation
+
+An identity is a keypair, so losing or leaking the key must not mean re-befriending
+everyone by hand. A card may carry a **rotation proof** — the OLD key signing the
+statement that the new key succeeds it:
+
+```json
+"rotation": {"v": 1, "old": "sha256:…", "old_pubkey": "…",
+             "new": "sha256:…", "new_pubkey": "…", "sig": "<by OLD key>"}
+```
+
+- Verification is two-staged, deliberately: `Card.verify` checks the proof is
+  internally consistent (names this card's key as successor, old pubkey fingerprints
+  to the old id, signature valid); `Contacts.apply_rotation` adds the check only the
+  receiver can make — **the proof's old key equals the pubkey already stored** for
+  that contact. Key material the new card brought along is never trusted on its own.
+- A rotation card arrives signed by the NEW key, so it can't pass normal
+  stored-contact verification; the Inbox admits exactly this one envelope kind from
+  an unknown principal, on those strict terms (all pre-auth gates — rate limit,
+  freshness, replay — still apply).
+- On acceptance everything keyed to the old principal follows: grants are
+  **re-issued** (a grant is a signed record — it can't be re-keyed in place; each
+  live one is authored fresh to the new id, then the old revoked), bindings,
+  subscriptions, circles, open threads/exchanges, and trust/disclosure history
+  migrate, and the owner is notified.
+- Own-side: `rotate_identity` (owner tool) generates the new pair, backs up the old
+  key file, re-signs our own live grant records, persists the proof (it rides on
+  every card we build from then on), and broadcasts CARD-UPDATE to all contacts —
+  queued by store-and-forward for peers that are offline.
+- **Single-hop only** in v1: a peer two rotations behind re-adds manually. And a
+  rotation is only as trustworthy as the old key at signing time — a key the
+  attacker already holds can sign them a rotation just as well; rotate early.
 
 ## Privacy: scopes, grants, enforcement
 
@@ -206,6 +239,23 @@ here).
 QMD note: the semantic index is global (`search_knowledge.ex:37`), so results are
 post-filtered through `Policy.filter/3` until QMD grows scoped collections.
 
+### Grant preview & the disclosure ledger
+
+Grants are only safe to hand out if the owner can see their blast radius — before and
+after.
+
+- **Before**: `preview_grant` dry-runs a prospective `(principal, scope)` grant with
+  the exact `can_read_file?` rules (scope resolution, intersection semantics, private
+  short-circuit) and reports which files would become readable, which are already
+  readable, and which stay blocked because they carry additional ungranted scopes.
+  Nothing is granted by previewing.
+- **After**: every piece of substantive outbound content — `ANSWER`s, discussion
+  `SAY`s, published items, and the questions/briefs we compose for external ears
+  (those disclose too) — is logged per `(peer, scope, kind)` with a content summary.
+  `review_disclosures` answers "what has my bot actually told Bob this month?".
+  The ledger is an audit aid, never an authorization gate; logging is best-effort
+  and must not block delivery.
+
 ## Trust
 
 Stored per peer, per topic:
@@ -226,6 +276,12 @@ trust:
   scores `trust(alice, movies) × alice_reported_confidence`, capped by `max_hops`.
 - Answers always carry provenance, so the agent can say "Carol (friend of Alice) rated
   it 9/10" and I can decide what that's worth.
+- The weights themselves wait for the trust algorithm, but their **training signal is
+  captured now**: every owner verdict on a quarantined inbox item — promote or
+  discard, via `promote_inbox_item` / `discard_inbox_item` — is logged per
+  `(principal, topic)` (`trust_signals`). When the recommendation policy lands it
+  starts on months of labeled data instead of cold. `show_trust_signals` displays the
+  raw counts.
 
 ## Transitivity
 
@@ -420,6 +476,13 @@ and trust keyed by `principal_id`. The Manager gets `list_contacts` / `add_conta
 `update_contact` tools, so "add Alice as a contact, she trusts age keys, here's her
 card" is a Telegram message, not a config edit.
 
+**Circles** are owner-local groups over the address book (`edit_circle` /
+`list_circles`): granting to `circle:friends` expands to one ordinary signed grant per
+CURRENT member, and `revoke_grant` accepts the same reference for bulk revocation.
+Purely a convenience layer — nothing about circles crosses the wire, membership
+grants nothing retroactively, and the live grant table stays the only authorization
+truth.
+
 ## Wire protocol
 
 Async-first (humans are in the loop; peers sleep). Signed JSON envelopes, **independent
@@ -450,6 +513,15 @@ ESCALATE    {id, in_reply_to, question}     # internal: agent → its own human
   federation ingress. The protocol layer above never knows which pipe a message rode.
   KbaseBot v1 implements `https` inbound+outbound; outbound-only adapters for whatever
   friends run can be added without touching protocol code.
+- **Store-and-forward** (implementation, not protocol): a failed first delivery
+  parks the envelope in a durable SQLite queue, retried with exponential backoff
+  (60s → 6h cap), in submission order per peer. Retention mirrors the receiver's
+  replay window — an envelope's signed `ts` goes stale after 7 days, so rows
+  dead-letter rather than retry past it. The owner is alerted once when a peer's
+  oldest queued envelope crosses the unreachable threshold (default 3 days; re-arms
+  on the next successful delivery), and can inspect the queue with
+  `list_pending_deliveries`. `Outbound.deliver` therefore means "delivered or
+  durably queued" — only an unknown contact is a hard error.
 - Every inbound message resolves to a principal via the identity module *before* any
   LLM processing — envelope signature checked against the stored contact card.
   Unverifiable ⇒ dropped, exactly like today's unauthorized Telegram messages.
@@ -499,6 +571,22 @@ subscription, not because the peer pushed. Peer-initiated discussions fit it too
 accumulate capability. Gossip (below) is the same move as subscriptions with the
 peer's judgment as the trigger — pre-authorized by a standing gossip grant, and
 confined to a quarantined inbox.
+
+### Per-peer inference budgets
+
+Every peer-initiated envelope that spawns an LLM loop — `QUERY` → responder,
+`PUBLISH` → evaluator, `SAY` → discussant turn — costs the *answering* owner real
+inference money. Rate limits bound the arrival rate; the **monthly budget** bounds
+the spend: each such envelope counts one loop against the sender
+(`peer_llm_usage`, cap `FEDERATION_PEER_MONTHLY_BUDGET`, default 100/month). Past
+the cap the peer gets `DECLINE {reason: rate_limited}` — unlike the no-grant
+DECLINE (deliberately indistinguishable), this one says what it is: it leaks
+nothing about the KB and tells a well-behaved peer to stop. The owner is alerted
+once per peer per month. Loops, not tokens: every loop is already turn-capped, so
+the count is a hard bound on spend, and a fuse only needs to blow, not to meter.
+Owner-initiated work (our queries, the interlocutor processing answers we asked
+for) is never budgeted. This matters most once `anyone` grants exist — a public
+card means the public internet eventually finds you.
 
 ### Foreign content in the KB
 
@@ -615,6 +703,22 @@ small, mutually-known, or static. Concretely: grants must support pseudo-princip
 (`anyone`), envelope kinds must be an open enum (unknown kinds ⇒ `DECLINE`, not crash),
 and rate-limiting/blocklists are per-principal from day one — a public agent will
 receive spam.
+
+## Two-instance demo
+
+`mix kbase_bot.demo` boots two instances with fresh identities — one in-VM,
+one as a separate OS process — talking real HTTP through Bandit on localhost,
+and walks the protocol end to end: card exchange, scope advertisement,
+QUERY → policy-filtered responder → ANSWER → confined interlocutor, a
+deny-by-default DECLINE, a key-rotation broadcast followed by a query under
+the new identity, and a store-and-forward round trip across a peer kill +
+restart. No API keys, Telegram, or network needed: `KBASE_DEMO=true` boots
+only store + federation children and swaps the LLM for the deterministic
+`KbaseBot.LLM.DemoStub` (which does real `list_files`/`read_file` calls, so
+policy filtering is exercised, not faked). The integration tests cover the
+logic in one VM; the demo covers what they can't — Bandit, real transport,
+two separate stores — and doubles as the rehearsal script for the real
+two-VPS deploy. `--keep` preserves the tmp dirs for inspection.
 
 ## Preparation in the current codebase
 

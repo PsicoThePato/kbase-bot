@@ -31,8 +31,10 @@ defmodule KbaseBot.Tools.ReadFile do
     repo_path = KbaseBot.Context.Server.repo_path()
     full_path = Path.join(repo_path, path)
 
-    # Prevent path traversal
-    if String.starts_with?(Path.expand(full_path), Path.expand(repo_path)) do
+    # Prevent path traversal. The trailing separator matters: without it,
+    # a sibling like /data/knowledge_base_secret passes the prefix check
+    # against repo /data/knowledge_base.
+    if String.starts_with?(Path.expand(full_path), Path.expand(repo_path) <> "/") do
       case File.read(full_path) do
         {:ok, content} ->
           # Deny by default: an ungranted file is indistinguishable from a

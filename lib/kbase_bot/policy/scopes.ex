@@ -16,7 +16,13 @@ defmodule KbaseBot.Policy.Scopes do
   @doc "Scope set for a file. `policy` is injectable for tests."
   @spec for_file(String.t(), binary(), map() | nil) :: [String.t()]
   def for_file(rel_path, content, policy \\ nil) do
-    Frontmatter.scopes(content) || default_scopes(rel_path, policy || load()) || @catch_all
+    case Frontmatter.scopes(content) || default_scopes(rel_path, policy || load()) || @catch_all do
+      # An empty scope set must fail closed: intersection semantics over zero
+      # scopes is vacuously true, so `scopes: []` would otherwise be readable
+      # by ANY principal. No labels ⇒ private.
+      [] -> @catch_all
+      scopes -> scopes
+    end
   end
 
   @doc "Path-default scopes from the policy map, most-specific glob wins."

@@ -12,6 +12,12 @@ defmodule KbaseBot.Test.FakeLLM do
       String.contains?(system_prompt, "Federation Discussant") ->
         discussant_turn(messages)
 
+      # Interlocutor (outbound answer handler): probe clearance, then report
+      # to the owner via notify_user. Turn 1: read secret.md; turn 2:
+      # notify_user with the clearance outcome; then stop.
+      String.contains?(system_prompt, "Federation Interlocutor") ->
+        interlocutor_turn(messages)
+
       has_tool_result?(messages) ->
         {:ok,
          %{"content" => [%{"type" => "text", "text" => "done"}], "stop_reason" => "end_turn"}}
@@ -87,6 +93,52 @@ defmodule KbaseBot.Test.FakeLLM do
              %{
                "type" => "tool_use",
                "id" => "toolu_fake_read",
+               "name" => "read_file",
+               "input" => %{"path" => "secret.md"}
+             }
+           ],
+           "stop_reason" => "tool_use"
+         }}
+    end
+  end
+
+  defp interlocutor_turn(messages) do
+    results = tool_result_contents(messages)
+
+    cond do
+      # Already notified the owner — stop.
+      Enum.any?(results, &String.contains?(&1, "Notification sent.")) ->
+        {:ok,
+         %{"content" => [%{"type" => "text", "text" => "done"}], "stop_reason" => "end_turn"}}
+
+      # Second turn: report the clearance outcome to the owner.
+      results != [] ->
+        outcome =
+          if Enum.any?(results, &String.contains?(&1, "File not found")),
+            do: "READ-DENIED",
+            else: "READ-OK"
+
+        {:ok,
+         %{
+           "content" => [
+             %{
+               "type" => "tool_use",
+               "id" => "toolu_fake_notify",
+               "name" => "notify_user",
+               "input" => %{"message" => "REPORT: peer replied; private read = #{outcome}"}
+             }
+           ],
+           "stop_reason" => "tool_use"
+         }}
+
+      # First turn: probe the clearance boundary.
+      true ->
+        {:ok,
+         %{
+           "content" => [
+             %{
+               "type" => "tool_use",
+               "id" => "toolu_fake_iread",
                "name" => "read_file",
                "input" => %{"path" => "secret.md"}
              }

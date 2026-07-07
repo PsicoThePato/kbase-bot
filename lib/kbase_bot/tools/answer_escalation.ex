@@ -2,7 +2,7 @@ defmodule KbaseBot.Tools.AnswerEscalation do
   @moduledoc false
   @behaviour KbaseBot.Tool
 
-  alias KbaseBot.Federation.{Envelope, Exchanges, Outbound}
+  alias KbaseBot.Federation.{Disclosures, Envelope, Exchanges, Outbound}
   alias KbaseBot.Identity.Keys
 
   @impl true
@@ -32,7 +32,7 @@ defmodule KbaseBot.Tools.AnswerEscalation do
   def execute(%{"exchange_id" => exchange_id, "answer" => answer}, context) do
     with :ok <- KbaseBot.Tool.require_owner(context) do
       case Exchanges.find("in", exchange_id) do
-        {:ok, %{state: "escalated", peer: peer}} ->
+        {:ok, %{state: "escalated", peer: peer, scope: scope}} ->
           with {:ok, own_id} <- Keys.own_principal_id(),
                {:ok, envelope} <-
                  Envelope.build("ANSWER", %{
@@ -44,6 +44,7 @@ defmodule KbaseBot.Tools.AnswerEscalation do
                  }),
                :ok <- Outbound.deliver(envelope, peer) do
             Exchanges.set_state("in", exchange_id, "answered")
+            Disclosures.log(peer, scope, "answer", exchange_id, answer)
             {:ok, "Answer delivered to #{peer}."}
           else
             _ -> {:error, "could not deliver the answer"}

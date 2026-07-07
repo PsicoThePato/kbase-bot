@@ -38,6 +38,24 @@ defmodule KbaseBot.KB.FrontmatterTest do
     assert Frontmatter.scopes("plain content") == nil
   end
 
+  test "parses CRLF line endings — explicit labels must not be dropped" do
+    content = "---\r\nscopes: [private]\r\n---\r\nbody\r\n"
+
+    assert {:ok, meta, _body} = Frontmatter.parse(content)
+    assert meta["scopes"] == ["private"]
+    assert Frontmatter.scopes(content) == ["private"]
+  end
+
+  test "parses content with a UTF-8 BOM" do
+    content = "\uFEFF---\nscopes: [private]\n---\nbody"
+    assert Frontmatter.scopes(content) == ["private"]
+  end
+
+  test "parses BOM + CRLF combined" do
+    content = "\uFEFF---\r\nscopes: [medical]\r\n---\r\nbody"
+    assert Frontmatter.scopes(content) == ["medical"]
+  end
+
   test "scopes/1 handles yaml list syntax" do
     content = """
     ---

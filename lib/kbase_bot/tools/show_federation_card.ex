@@ -40,7 +40,11 @@ defmodule KbaseBot.Tools.ShowFederationCard do
       display_name = Application.get_env(:kbase_bot, :federation_display_name, "KbaseBot")
       seq = System.os_time(:second)
 
-      case Card.build(display_name, seq, endpoints, public_scopes) do
+      # After a key rotation the proof rides on every card, so even a
+      # manually re-shared card migrates peers still on the old identity.
+      rotation = KbaseBot.Federation.Rotation.proof()
+
+      case Card.build(display_name, seq, endpoints, public_scopes, rotation) do
         {:ok, card} ->
           {:ok, "Our federation card (share this JSON):\n" <> Jason.encode!(card)}
 
