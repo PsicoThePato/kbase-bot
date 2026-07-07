@@ -316,6 +316,133 @@ defmodule KbaseBot.Federation.IntegrationTest do
     assert {:ok, _} = File.ls(Path.join([ctx.tmp, "kb", "inbox"]))
   end
 
+  # --- Phase 5: discussions + clearance rule ---
+
+  test "peer-opened discussion runs at peer clearance: private read denied", ctx do
+    {:ok, _} = Grants.create(ctx.peer_id, "movies", ["query", "discuss"])
+
+    say =
+      peer_envelope(
+        "SAY",
+        %{"thread" => "th_1", "scope" => "movies", "message" => "let's talk movies"},
+        ctx
+      )
+
+    Inbox.process(say)
+
+    # The stubbed discussant probes secret.md (private) then reports via say.
+    assert_receive {:federation_envelope, reply}, 3_000
+    assert reply["kind"] == "SAY"
+    assert reply["thread"] == "th_1"
+    assert reply["message"] == "READ-DENIED"
+
+    assert {:ok, %{state: "open", scope: "movies"}} = KbaseBot.Federation.Threads.find("th_1")
+  end
+
+  test "opening SAY without discuss grant is declined", ctx do
+    {:ok, _} = Grants.create(ctx.peer_id, "movies", ["query"])
+
+    say =
+      peer_envelope("SAY", %{"thread" => "th_2", "scope" => "movies", "message" => "hi"}, ctx)
+
+    Inbox.process(say)
+
+    assert_receive {:federation_envelope, decline}, 3_000
+    assert decline["kind"] == "DECLINE"
+  end
+
+  test "mid-thread scope switch is declined", ctx do
+    {:ok, _} = Grants.create(ctx.peer_id, "movies", ["discuss"])
+
+    Inbox.process(
+      peer_envelope(
+        "SAY",
+        %{"thread" => "th_3", "scope" => "movies", "message" => "opening"},
+        ctx
+      )
+    )
+
+    assert_receive {:federation_envelope, %{"kind" => "SAY"}}, 3_000
+
+    Inbox.process(
+      peer_envelope(
+        "SAY",
+        %{"thread" => "th_3", "scope" => "medical", "message" => "switcheroo"},
+        ctx
+      )
+    )
+
+    assert_receive {:federation_envelope, %{"kind" => "DECLINE"}}, 3_000
+  end
+
+  test "turn budget exhaustion closes the thread", ctx do
+    {:ok, _} =
+      Grants.create(ctx.peer_id, "movies", %{"discuss" => %{"depth" => 0}}, %{"max_turns" => 1})
+
+    Inbox.process(
+      peer_envelope(
+        "SAY",
+        %{"thread" => "th_4", "scope" => "movies", "message" => "turn one"},
+        ctx
+      )
+    )
+
+    assert_receive {:federation_envelope, %{"kind" => "SAY"}}, 3_000
+
+    # Turn budget (1) is spent — the next SAY triggers CLOSE, not a reply.
+    Inbox.process(peer_envelope("SAY", %{"thread" => "th_4", "message" => "turn two"}, ctx))
+
+    assert_receive {:federation_envelope, close}, 3_000
+    assert close["kind"] == "CLOSE"
+    assert {:ok, %{state: "closed"}} = KbaseBot.Federation.Threads.find("th_4")
+  end
+
+  test "owner-initiated discussion subagent also runs at peer clearance", ctx do
+    {:ok, _} = Grants.create(ctx.peer_id, "movies", ["query", "discuss"])
+
+    {:ok, thread_id} =
+      KbaseBot.Federation.Discussion.open_from_owner(
+        ctx.peer_id,
+        "movies",
+        "Hey, what did you think of Dune?"
+      )
+
+    # The opening SAY goes out under Manager authority (owner voice, once).
+    assert_receive {:federation_envelope, opening}, 3_000
+    assert opening["kind"] == "SAY"
+    assert opening["message"] =~ "Dune"
+
+    # Peer replies — OUR subagent resumes and probes secret.md: must be denied
+    # even though the OWNER could read it. That is the clearance rule.
+    Inbox.process(
+      peer_envelope("SAY", %{"thread" => thread_id, "message" => "loved it, you?"}, ctx)
+    )
+
+    assert_receive {:federation_envelope, reply}, 3_000
+    assert reply["kind"] == "SAY"
+    assert reply["message"] == "READ-DENIED"
+  end
+
+  test "peer CLOSE marks the thread closed; SAYs on closed threads drop", ctx do
+    {:ok, _} = Grants.create(ctx.peer_id, "movies", ["discuss"])
+
+    Inbox.process(
+      peer_envelope(
+        "SAY",
+        %{"thread" => "th_5", "scope" => "movies", "message" => "opening"},
+        ctx
+      )
+    )
+
+    assert_receive {:federation_envelope, %{"kind" => "SAY"}}, 3_000
+
+    Inbox.process(peer_envelope("CLOSE", %{"thread" => "th_5", "reason" => "done"}, ctx))
+    assert {:ok, %{state: "closed"}} = KbaseBot.Federation.Threads.find("th_5")
+
+    assert Inbox.process(peer_envelope("SAY", %{"thread" => "th_5", "message" => "zombie"}, ctx)) ==
+             :drop
+  end
+
   test "policy: peer reads granted file, private file stays invisible", ctx do
     {:ok, _} = Grants.create(ctx.peer_id, "movies", ["query"])
     peer = %KbaseBot.Principal{id: ctx.peer_id, provider: :ed25519}

@@ -149,6 +149,55 @@ defmodule KbaseBot.Federation.Inbox do
     end
   end
 
+  # Discussions: the opening SAY is authorized like any capability exercise;
+  # later SAYs resume the pinned thread (budget-checked). Mid-thread scope
+  # switches are declined; SAYs on foreign/closed threads drop.
+  defp route("SAY", from, env) do
+    alias KbaseBot.Federation.{Discussion, Threads}
+
+    case Threads.find(env["thread"] || "") do
+      {:error, :not_found} ->
+        case Verifier.authorize(from, env["scope"], "discuss", env["proof"] || []) do
+          {:ok, grant} ->
+            Elixir.Task.Supervisor.async_nolink(KbaseBot.TaskSupervisor, fn ->
+              Discussion.open_from_peer(env, grant)
+            end)
+
+            :ok
+
+          {:error, :declined} ->
+            decline(env, from)
+        end
+
+      {:ok, %{principal_id: ^from, state: "open"} = thread} ->
+        if env["scope"] in [nil, thread.scope] do
+          Elixir.Task.Supervisor.async_nolink(KbaseBot.TaskSupervisor, fn ->
+            Discussion.handle_say(thread, env["message"])
+          end)
+
+          :ok
+        else
+          decline(env, from)
+        end
+
+      _ ->
+        Logger.debug("Federation inbox: SAY on foreign/closed thread from #{from} dropped")
+        :drop
+    end
+  end
+
+  defp route("CLOSE", from, env) do
+    alias KbaseBot.Federation.{Discussion, Threads}
+
+    case Threads.find(env["thread"] || "") do
+      {:ok, %{principal_id: ^from, state: "open"} = thread} ->
+        Discussion.peer_closed(thread, env["reason"])
+
+      _ ->
+        :drop
+    end
+  end
+
   defp route("CARD-UPDATE", from, env) do
     case env["card"] do
       %{"principal" => ^from} = card ->

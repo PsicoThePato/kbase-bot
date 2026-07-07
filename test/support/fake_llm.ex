@@ -7,6 +7,11 @@ defmodule KbaseBot.Test.FakeLLM do
 
   def chat(system_prompt, messages, _opts) do
     cond do
+      # Discussant: probe clearance by reading a private file, then say what
+      # happened. Turn 1: read_file secret.md; turn 2: say READ-DENIED/READ-OK.
+      String.contains?(system_prompt, "Federation Discussant") ->
+        discussant_turn(messages)
+
       has_tool_result?(messages) ->
         {:ok,
          %{"content" => [%{"type" => "text", "text" => "done"}], "stop_reason" => "end_turn"}}
@@ -43,6 +48,63 @@ defmodule KbaseBot.Test.FakeLLM do
            "stop_reason" => "tool_use"
          }}
     end
+  end
+
+  defp discussant_turn(messages) do
+    results = tool_result_contents(messages)
+
+    cond do
+      # Already said something this session — stop.
+      Enum.any?(results, &String.contains?(&1, "Sent.")) ->
+        {:ok,
+         %{"content" => [%{"type" => "text", "text" => "waiting"}], "stop_reason" => "end_turn"}}
+
+      # Second turn: report the read outcome via say.
+      results != [] ->
+        outcome =
+          if Enum.any?(results, &String.contains?(&1, "File not found")),
+            do: "READ-DENIED",
+            else: "READ-OK"
+
+        {:ok,
+         %{
+           "content" => [
+             %{
+               "type" => "tool_use",
+               "id" => "toolu_fake_say",
+               "name" => "say",
+               "input" => %{"message" => outcome}
+             }
+           ],
+           "stop_reason" => "tool_use"
+         }}
+
+      # First turn: probe the clearance boundary.
+      true ->
+        {:ok,
+         %{
+           "content" => [
+             %{
+               "type" => "tool_use",
+               "id" => "toolu_fake_read",
+               "name" => "read_file",
+               "input" => %{"path" => "secret.md"}
+             }
+           ],
+           "stop_reason" => "tool_use"
+         }}
+    end
+  end
+
+  defp tool_result_contents(messages) do
+    messages
+    |> Enum.flat_map(fn
+      %{"role" => "user", "content" => blocks} when is_list(blocks) ->
+        for %{"type" => "tool_result", "content" => c} <- blocks, is_binary(c), do: c
+
+      _ ->
+        []
+    end)
   end
 
   defp has_tool_result?(messages) do

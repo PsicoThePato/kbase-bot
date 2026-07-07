@@ -136,6 +136,20 @@ defmodule KbaseBot.Repo.Migrations do
       )
       """,
       """
+      CREATE TABLE IF NOT EXISTS threads (
+          id TEXT PRIMARY KEY,
+          role TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          task_id TEXT NOT NULL,
+          turn_count INTEGER NOT NULL DEFAULT 0,
+          max_turns INTEGER NOT NULL DEFAULT 12,
+          state TEXT NOT NULL DEFAULT 'open',
+          opened_at TEXT NOT NULL,
+          closed_at TEXT
+      )
+      """,
+      """
       CREATE TABLE IF NOT EXISTS bindings (
           topic TEXT NOT NULL,
           principal_id TEXT NOT NULL,

@@ -48,12 +48,15 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.UnsubscribePeer,
     KbaseBot.Tools.ListSubscriptions,
     KbaseBot.Tools.PublishItem,
+    KbaseBot.Tools.DiscussPeer,
     # Federation — constrained-loop tools (layer :federation, never in
     # manager/task loops; reachable only via an explicit Session toolset)
     KbaseBot.Tools.AnswerPeer,
     KbaseBot.Tools.DeclinePeer,
     KbaseBot.Tools.EscalateToOwner,
-    KbaseBot.Tools.InboxAppend
+    KbaseBot.Tools.InboxAppend,
+    KbaseBot.Tools.Say,
+    KbaseBot.Tools.CloseThread
   ]
 
   @federation_tools [
@@ -72,7 +75,8 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.SubscribePeer,
     KbaseBot.Tools.UnsubscribePeer,
     KbaseBot.Tools.ListSubscriptions,
-    KbaseBot.Tools.PublishItem
+    KbaseBot.Tools.PublishItem,
+    KbaseBot.Tools.DiscussPeer
   ]
 
   @required_config Map.merge(

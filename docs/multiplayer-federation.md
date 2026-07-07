@@ -346,6 +346,14 @@ João?"), negotiation, two agents narrowing something down together. Capability:
   different transports.
 - A thread is pinned at open time to `(principal, scope)`. No mid-thread scope
   change — open another thread.
+- **The clearance rule.** *Both* sides of a thread run at the peer's grant
+  view: whatever agent conducts a discussion with principal P may read only
+  what P is granted — anything it can read, it can leak into the
+  conversation. On the answering side that is the responder's normal
+  principal; on the *initiating* side, the owner's Manager never chats
+  directly — it composes an opening brief (disclosure happens exactly once,
+  deliberately, like a query composed for external ears) and hands the thread
+  to a **discussion subagent** whose reads are policy-filtered as P.
 - **Peer-initiated threads run in a conversational federation responder**: the same
   fixed toolset (policy-filtered reads, `answer_peer`/`decline`/`escalate_to_owner`),
   the same fan-out cap, plus a **turn budget** — `min(owner default, grant's
