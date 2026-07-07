@@ -30,19 +30,49 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.CreateTodo,
     KbaseBot.Tools.ListTodos,
     KbaseBot.Tools.CompleteTodo,
-    KbaseBot.Tools.DeleteTodo
+    KbaseBot.Tools.DeleteTodo,
+    # Federation — owner-facing manager tools
+    KbaseBot.Tools.ShowFederationCard,
+    KbaseBot.Tools.AddContact,
+    KbaseBot.Tools.ListContacts,
+    KbaseBot.Tools.GrantScope,
+    KbaseBot.Tools.RevokeGrant,
+    KbaseBot.Tools.ListGrants,
+    KbaseBot.Tools.QueryPeer,
+    KbaseBot.Tools.ListPeerScopes,
+    KbaseBot.Tools.AnswerEscalation,
+    # Federation — responder-only tools (layer :federation, never in
+    # manager/task loops; reachable only via an explicit Session toolset)
+    KbaseBot.Tools.AnswerPeer,
+    KbaseBot.Tools.DeclinePeer,
+    KbaseBot.Tools.EscalateToOwner
   ]
 
-  @required_config %{
-    KbaseBot.Tools.SendGif => :giphy_api_key,
-    KbaseBot.Tools.WebSearch => :exa_api_key,
-    KbaseBot.Tools.CreateTodo => :todoist_api_key,
-    KbaseBot.Tools.ListTodos => :todoist_api_key,
-    KbaseBot.Tools.CompleteTodo => :todoist_api_key,
-    KbaseBot.Tools.DeleteTodo => :todoist_api_key,
-    KbaseBot.Tools.SearchHistory => :voyage_api_key,
-    KbaseBot.Tools.SearchTasks => :voyage_api_key
-  }
+  @federation_tools [
+    KbaseBot.Tools.ShowFederationCard,
+    KbaseBot.Tools.AddContact,
+    KbaseBot.Tools.ListContacts,
+    KbaseBot.Tools.GrantScope,
+    KbaseBot.Tools.RevokeGrant,
+    KbaseBot.Tools.ListGrants,
+    KbaseBot.Tools.QueryPeer,
+    KbaseBot.Tools.ListPeerScopes,
+    KbaseBot.Tools.AnswerEscalation
+  ]
+
+  @required_config Map.merge(
+                     %{
+                       KbaseBot.Tools.SendGif => :giphy_api_key,
+                       KbaseBot.Tools.WebSearch => :exa_api_key,
+                       KbaseBot.Tools.CreateTodo => :todoist_api_key,
+                       KbaseBot.Tools.ListTodos => :todoist_api_key,
+                       KbaseBot.Tools.CompleteTodo => :todoist_api_key,
+                       KbaseBot.Tools.DeleteTodo => :todoist_api_key,
+                       KbaseBot.Tools.SearchHistory => :voyage_api_key,
+                       KbaseBot.Tools.SearchTasks => :voyage_api_key
+                     },
+                     Map.new(@federation_tools, &{&1, :federation_key_path})
+                   )
 
   @doc """
   Returns Anthropic-format tool schemas for a given layer. Tools whose
@@ -84,7 +114,11 @@ defmodule KbaseBot.Tools.Registry do
     end)
   end
 
-  defp tool_schema(mod) do
+  @doc """
+  Anthropic-format schema for one tool module — used by loops with an
+  explicit toolset (federation responder) instead of layer filtering.
+  """
+  def tool_schema(mod) do
     %{
       name: mod.name(),
       description: mod.description(),

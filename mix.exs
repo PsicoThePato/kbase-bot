@@ -6,6 +6,7 @@ defmodule KbaseBot.MixProject do
       app: :kbase_bot,
       version: "0.1.0",
       elixir: "~> 1.17",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       releases: [
@@ -25,6 +26,9 @@ defmodule KbaseBot.MixProject do
     ]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
@@ -38,7 +42,8 @@ defmodule KbaseBot.MixProject do
       {:crontab, "~> 1.1"},
       {:nx, "~> 0.7"},
       {:req, "~> 0.5"},
-      {:yaml_elixir, "~> 2.9"}
+      {:yaml_elixir, "~> 2.9"},
+      {:bandit, "~> 1.5"}
     ]
   end
 end

@@ -108,6 +108,20 @@ defmodule KbaseBot.Repo.Migrations do
       """
       CREATE INDEX IF NOT EXISTS idx_grants_live ON grants (aud, scope)
           WHERE revoked_at IS NULL
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS exchanges (
+          id TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          peer TEXT NOT NULL,
+          scope TEXT,
+          question TEXT,
+          state TEXT NOT NULL DEFAULT 'open',
+          opened_at TEXT NOT NULL,
+          closed_at TEXT,
+          PRIMARY KEY (id, direction)
+      )
       """
     ]
   end

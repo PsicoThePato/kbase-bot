@@ -15,7 +15,14 @@ defmodule KbaseBot.Tasks.Session do
     # Principal this session runs as — tools are policy-gated against it.
     :principal,
     # Where notify_user delivers; nil falls back to the owner chat id.
-    :notify_chat_id
+    :notify_chat_id,
+    # Explicit tool-module list (fixed at construction — the capability
+    # ceiling for constrained loops). nil = layer-based Registry filtering.
+    :tools,
+    # Per-session turn cap; nil = the Runner default.
+    :max_turns,
+    # Extra keys merged into the tool context (e.g. exchange_id, peer_id).
+    :meta
   ]
 
   def new(%Task{} = task, system_prompt, opts \\ []) do
@@ -26,7 +33,10 @@ defmodule KbaseBot.Tasks.Session do
       system_prompt: system_prompt,
       needs_planning: Keyword.get(opts, :needs_planning, false),
       principal: Keyword.get(opts, :principal) || KbaseBot.Principal.owner(),
-      notify_chat_id: Keyword.get(opts, :notify_chat_id)
+      notify_chat_id: Keyword.get(opts, :notify_chat_id),
+      tools: Keyword.get(opts, :tools),
+      max_turns: Keyword.get(opts, :max_turns),
+      meta: Keyword.get(opts, :meta, %{})
     }
   end
 

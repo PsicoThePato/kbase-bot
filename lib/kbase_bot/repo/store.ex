@@ -19,7 +19,10 @@ defmodule KbaseBot.Repo.Store do
 
   @impl true
   def init(_) do
-    db_path = Path.join(Application.app_dir(:kbase_bot), @db_path)
+    db_path =
+      Application.get_env(:kbase_bot, :db_path) ||
+        Path.join(Application.app_dir(:kbase_bot), @db_path)
+
     File.mkdir_p!(Path.dirname(db_path))
 
     {:ok, conn} = Exqlite.Sqlite3.open(db_path)

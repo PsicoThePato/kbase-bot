@@ -26,7 +26,8 @@ if config_env() != :test do
     federation_enabled: System.get_env("FEDERATION_ENABLED", "false") == "true",
     federation_key_path: System.get_env("FEDERATION_KEY_PATH"),
     federation_port: System.get_env("FEDERATION_PORT", "4040") |> String.to_integer(),
-    federation_public_url: System.get_env("FEDERATION_PUBLIC_URL")
+    federation_public_url: System.get_env("FEDERATION_PUBLIC_URL"),
+    federation_display_name: System.get_env("FEDERATION_DISPLAY_NAME", "KbaseBot")
 
   if console? do
     config :kbase_bot, telegram_bot_token: nil, telegram_chat_id: 0

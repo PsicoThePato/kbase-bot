@@ -48,12 +48,18 @@ defmodule KbaseBot.Tasks.Runner do
   end
 
   def execute_loop(%Session{} = session, layer) do
-    if session.turn >= @max_turns do
-      {:error, "max turns (#{@max_turns}) exceeded"}
-    else
-      tools = Registry.for_layer(layer)
+    max_turns = session.max_turns || @max_turns
 
-      case Client.chat(session.system_prompt, session.task.messages,
+    if session.turn >= max_turns do
+      {:error, "max turns (#{max_turns}) exceeded"}
+    else
+      tools =
+        case session.tools do
+          nil -> Registry.for_layer(layer)
+          mods -> Enum.map(mods, &Registry.tool_schema/1)
+        end
+
+      case llm_client().chat(session.system_prompt, session.task.messages,
              model: session.model,
              tools: tools
            ) do
@@ -73,12 +79,14 @@ defmodule KbaseBot.Tasks.Runner do
             {:ok, session}
           else
             # Execute tools, send results back, loop
-            results =
-              execute_tools(tool_calls, %{
+            context =
+              Map.merge(session.meta || %{}, %{
                 manager_pid: self(),
                 principal: session.principal || KbaseBot.Principal.owner(),
                 notify_chat_id: session.notify_chat_id
               })
+
+            results = execute_tools(tool_calls, context)
             session = Session.push_tool_results(session, results)
             Session.save(session)
             execute_loop(session, layer)
@@ -91,6 +99,9 @@ defmodule KbaseBot.Tasks.Runner do
       end
     end
   end
+
+  # Injectable for tests (a stub returning canned tool_use blocks).
+  defp llm_client, do: Application.get_env(:kbase_bot, :llm_client, Client)
 
   defp execute_tools(tool_calls, context) do
     Enum.map(tool_calls, fn %{id: id, name: name, input: input} ->

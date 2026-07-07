@@ -15,6 +15,7 @@ defmodule KbaseBot.LLM.Prompts do
   @personality_prompt_path "priv/prompts/personality.md"
   @task_execution_prompt_path "priv/prompts/task_execution.md"
   @briefing_prompt_path "priv/prompts/briefing.md"
+  @federation_responder_prompt_path "priv/prompts/federation_responder.md"
 
   if File.exists?(@manager_prompt_path) do
     @external_resource @manager_prompt_path
@@ -44,6 +45,13 @@ defmodule KbaseBot.LLM.Prompts do
     @briefing_prompt ""
   end
 
+  if File.exists?(@federation_responder_prompt_path) do
+    @external_resource @federation_responder_prompt_path
+    @federation_responder_prompt File.read!(@federation_responder_prompt_path)
+  else
+    @federation_responder_prompt ""
+  end
+
   def manager do
     base =
       prompt("manager.md", @manager_prompt) <>
@@ -68,6 +76,12 @@ defmodule KbaseBot.LLM.Prompts do
     |> String.replace("{{day_of_week}}", day_of_week)
     |> String.replace("{{date}}", date)
     |> String.replace("{{user_profile}}", user_profile)
+  end
+
+  def federation_responder(scope, peer_name) do
+    prompt("federation_responder.md", @federation_responder_prompt)
+    |> String.replace("{{scope}}", scope || "unknown")
+    |> String.replace("{{peer}}", peer_name || "unknown peer")
   end
 
   defp prompt(name, default) do

@@ -14,7 +14,9 @@ defmodule KbaseBot.Identity.KeysTest do
     msg = "roundtrip"
     sig = :crypto.sign(:eddsa, :none, msg, [priv, :ed25519])
     assert :crypto.verify(:eddsa, :none, msg, sig, [pub, :ed25519])
-    assert Keys.fingerprint(pub) == "sha256:" <> Base.encode16(:crypto.hash(:sha256, pub), case: :lower)
+
+    assert Keys.fingerprint(pub) ==
+             "sha256:" <> Base.encode16(:crypto.hash(:sha256, pub), case: :lower)
   end
 
   @tag :tmp_dir

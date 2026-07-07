@@ -55,9 +55,7 @@ defmodule KbaseBot.Federation.Grants do
   @doc "All live (non-revoked) grant records. Expiry is checked by the Verifier."
   @spec all_live() :: [map()]
   def all_live do
-    case KbaseBot.Repo.Store.query(
-           "SELECT record_json FROM grants WHERE revoked_at IS NULL"
-         ) do
+    case KbaseBot.Repo.Store.query("SELECT record_json FROM grants WHERE revoked_at IS NULL") do
       {:ok, rows} -> Enum.map(rows, fn [json] -> Jason.decode!(json) end)
       _ -> []
     end

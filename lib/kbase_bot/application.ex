@@ -18,6 +18,7 @@ defmodule KbaseBot.Application do
             {Elixir.Task.Supervisor, name: KbaseBot.TaskSupervisor}
           ] ++
           interface_children() ++
+          federation_children() ++
           [KbaseBot.Scheduler.Scheduler]
       else
         []
@@ -32,6 +33,20 @@ defmodule KbaseBot.Application do
       []
     else
       [KbaseBot.Memory.Embedder]
+    end
+  end
+
+  defp federation_children do
+    if Application.get_env(:kbase_bot, :federation_enabled, false) do
+      [
+        KbaseBot.Federation.Inbox,
+        {Bandit,
+         plug: KbaseBot.Federation.Transport.HTTPInbound,
+         port: Application.get_env(:kbase_bot, :federation_port, 4040),
+         scheme: :http}
+      ]
+    else
+      []
     end
   end
 

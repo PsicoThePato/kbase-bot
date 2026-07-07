@@ -4,7 +4,7 @@ defmodule KbaseBot.Tool do
   Each tool declares which layer it belongs to (:manager, :task, or :both).
   """
 
-  @type layer :: :manager | :task | :both
+  @type layer :: :manager | :task | :both | :federation
   @type tool_result :: {:ok, String.t()} | {:error, String.t()}
 
   @callback name() :: String.t()
