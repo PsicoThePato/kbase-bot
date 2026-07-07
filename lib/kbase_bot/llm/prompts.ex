@@ -52,6 +52,15 @@ defmodule KbaseBot.LLM.Prompts do
     @federation_responder_prompt ""
   end
 
+  @federation_evaluator_prompt_path "priv/prompts/federation_evaluator.md"
+
+  if File.exists?(@federation_evaluator_prompt_path) do
+    @external_resource @federation_evaluator_prompt_path
+    @federation_evaluator_prompt File.read!(@federation_evaluator_prompt_path)
+  else
+    @federation_evaluator_prompt ""
+  end
+
   def manager do
     base =
       prompt("manager.md", @manager_prompt) <>
@@ -81,6 +90,12 @@ defmodule KbaseBot.LLM.Prompts do
   def federation_responder(scope, peer_name) do
     prompt("federation_responder.md", @federation_responder_prompt)
     |> String.replace("{{scope}}", scope || "unknown")
+    |> String.replace("{{peer}}", peer_name || "unknown peer")
+  end
+
+  def federation_evaluator(topic, peer_name) do
+    prompt("federation_evaluator.md", @federation_evaluator_prompt)
+    |> String.replace("{{topic}}", topic || "misc")
     |> String.replace("{{peer}}", peer_name || "unknown peer")
   end
 

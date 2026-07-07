@@ -44,11 +44,16 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.BindTopic,
     KbaseBot.Tools.UnbindTopic,
     KbaseBot.Tools.ListBindings,
-    # Federation — responder-only tools (layer :federation, never in
+    KbaseBot.Tools.SubscribePeer,
+    KbaseBot.Tools.UnsubscribePeer,
+    KbaseBot.Tools.ListSubscriptions,
+    KbaseBot.Tools.PublishItem,
+    # Federation — constrained-loop tools (layer :federation, never in
     # manager/task loops; reachable only via an explicit Session toolset)
     KbaseBot.Tools.AnswerPeer,
     KbaseBot.Tools.DeclinePeer,
-    KbaseBot.Tools.EscalateToOwner
+    KbaseBot.Tools.EscalateToOwner,
+    KbaseBot.Tools.InboxAppend
   ]
 
   @federation_tools [
@@ -63,7 +68,11 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.AnswerEscalation,
     KbaseBot.Tools.BindTopic,
     KbaseBot.Tools.UnbindTopic,
-    KbaseBot.Tools.ListBindings
+    KbaseBot.Tools.ListBindings,
+    KbaseBot.Tools.SubscribePeer,
+    KbaseBot.Tools.UnsubscribePeer,
+    KbaseBot.Tools.ListSubscriptions,
+    KbaseBot.Tools.PublishItem
   ]
 
   @required_config Map.merge(

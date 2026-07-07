@@ -114,6 +114,41 @@ defmodule KbaseBot.Federation.Inbox do
     :ok
   end
 
+  # Peer subscribes to one of my scopes: authorized like any capability
+  # exercise; silence on success (the feed items are the confirmation).
+  defp route("SUBSCRIBE", from, env) do
+    case Verifier.authorize(from, env["scope"], "subscribe", env["proof"] || []) do
+      {:ok, _grant} ->
+        KbaseBot.Federation.Subscriptions.upsert("in", from, env["scope"], nil)
+        :ok
+
+      {:error, :declined} ->
+        decline(env, from)
+    end
+  end
+
+  defp route("UNSUBSCRIBE", from, env) do
+    KbaseBot.Federation.Subscriptions.set_state("in", from, env["scope"], "cancelled")
+    :ok
+  end
+
+  # Initiator rule: a PUBLISH is ingested only against a subscription I
+  # initiated. Anything else is an unsolicited push — dropped.
+  defp route("PUBLISH", from, env) do
+    case KbaseBot.Federation.Subscriptions.find_active("out", from, env["scope"]) do
+      {:ok, subscription} ->
+        Elixir.Task.Supervisor.async_nolink(KbaseBot.TaskSupervisor, fn ->
+          KbaseBot.Federation.Evaluator.run(env, subscription)
+        end)
+
+        :ok
+
+      {:error, :not_found} ->
+        Logger.debug("Federation inbox: unsolicited PUBLISH from #{from} dropped")
+        :drop
+    end
+  end
+
   defp route("CARD-UPDATE", from, env) do
     case env["card"] do
       %{"principal" => ^from} = card ->

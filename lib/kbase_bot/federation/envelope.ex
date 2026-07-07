@@ -8,7 +8,7 @@ defmodule KbaseBot.Federation.Envelope do
   alias KbaseBot.Federation.Canonical
   alias KbaseBot.Identity.Keys
 
-  @kinds ~w(QUERY ANSWER DECLINE ESCALATED LIST-SCOPES SCOPES CARD-UPDATE)
+  @kinds ~w(QUERY ANSWER DECLINE ESCALATED LIST-SCOPES SCOPES CARD-UPDATE SUBSCRIBE UNSUBSCRIBE PUBLISH)
 
   def kinds, do: @kinds
 

@@ -223,6 +223,99 @@ defmodule KbaseBot.Federation.IntegrationTest do
              KbaseBot.Federation.Verifier.authorize(ctx.peer_id, "movies", "query")
   end
 
+  # --- Phase 4: subscriptions / publish / evaluator ---
+
+  test "peer SUBSCRIBE with grant registers; PUBLISH goes out; revocation ends the feed", ctx do
+    {:ok, grant_id} = Grants.create(ctx.peer_id, "movies", ["subscribe", "query"])
+
+    sub = peer_envelope("SUBSCRIBE", %{"scope" => "movies", "proof" => []}, ctx)
+    Inbox.process(sub)
+
+    assert {:ok, _} =
+             KbaseBot.Federation.Subscriptions.find_active("in", ctx.peer_id, "movies")
+
+    # Publish the granted file — the peer receives it.
+    assert {:ok, summary} = KbaseBot.Federation.Publisher.publish("movies", "movies/list.md")
+    assert summary =~ "1 delivered"
+
+    assert_receive {:federation_envelope, published}, 3_000
+    assert published["kind"] == "PUBLISH"
+    assert published["item"]["content"] =~ "Dune"
+
+    # Revoke — the next publish ends the feed instead of delivering.
+    :ok = Grants.revoke(grant_id)
+    assert {:ok, summary2} = KbaseBot.Federation.Publisher.publish("movies", "movies/list.md")
+    assert summary2 =~ "feeds ended"
+    refute_receive {:federation_envelope, %{"kind" => "PUBLISH"}}, 300
+  end
+
+  test "ungranted SUBSCRIBE is declined", ctx do
+    sub = peer_envelope("SUBSCRIBE", %{"scope" => "movies", "proof" => []}, ctx)
+    Inbox.process(sub)
+
+    assert_receive {:federation_envelope, decline}, 3_000
+    assert decline["kind"] == "DECLINE"
+  end
+
+  test "inbound PUBLISH against our subscription is quarantined with attribution", ctx do
+    KbaseBot.Federation.Subscriptions.upsert("out", ctx.peer_id, "filmes", "movies")
+
+    push =
+      peer_envelope(
+        "PUBLISH",
+        %{
+          "scope" => "filmes",
+          "item" => %{"title" => "New rec", "content" => "Blade Runner 2049, 10/10"}
+        },
+        ctx
+      )
+
+    assert Inbox.process(push) == :ok
+
+    # Evaluator (stubbed LLM) files into inbox/movies/ — poll briefly.
+    inbox_dir = Path.join([ctx.tmp, "kb", "inbox", "movies"])
+
+    files =
+      Enum.find_value(1..30, fn _ ->
+        Process.sleep(50)
+
+        case File.ls(inbox_dir) do
+          {:ok, [_ | _] = files} -> files
+          _ -> nil
+        end
+      end)
+
+    assert files != nil, "evaluator never filed the item"
+    content = File.read!(Path.join(inbox_dir, hd(files)))
+    assert content =~ "FAKE-FILED"
+    assert content =~ "principal: \"#{ctx.peer_id}\""
+    assert content =~ "scopes: [private]"
+  end
+
+  test "unsolicited PUBLISH (no out-subscription) is dropped", ctx do
+    push =
+      peer_envelope(
+        "PUBLISH",
+        %{"scope" => "filmes", "item" => %{"title" => "spam", "content" => "spam"}},
+        ctx
+      )
+
+    assert Inbox.process(push) == :drop
+  end
+
+  test "inbox_append sanitizes hostile topics — no path escape", ctx do
+    {:ok, result} =
+      KbaseBot.Tools.InboxAppend.execute(
+        %{"title" => "../../../evil", "content" => "x"},
+        %{publisher_id: ctx.peer_id, topic: "../../outside"}
+      )
+
+    assert result =~ "Filed to inbox/"
+    # Nothing may exist outside kb/inbox.
+    refute File.exists?(Path.join(ctx.tmp, "outside"))
+    assert {:ok, _} = File.ls(Path.join([ctx.tmp, "kb", "inbox"]))
+  end
+
   test "policy: peer reads granted file, private file stays invisible", ctx do
     {:ok, _} = Grants.create(ctx.peer_id, "movies", ["query"])
     peer = %KbaseBot.Principal{id: ctx.peer_id, provider: :ed25519}

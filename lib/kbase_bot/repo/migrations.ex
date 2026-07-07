@@ -124,6 +124,18 @@ defmodule KbaseBot.Repo.Migrations do
       )
       """,
       """
+      CREATE TABLE IF NOT EXISTS subscriptions (
+          id TEXT PRIMARY KEY,
+          direction TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          topic TEXT,
+          state TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT NOT NULL,
+          UNIQUE (direction, principal_id, scope)
+      )
+      """,
+      """
       CREATE TABLE IF NOT EXISTS bindings (
           topic TEXT NOT NULL,
           principal_id TEXT NOT NULL,

@@ -86,7 +86,16 @@ defmodule KbaseBot.Tasks.Runner do
                 notify_chat_id: session.notify_chat_id
               })
 
-            results = execute_tools(tool_calls, context)
+            # An explicit toolset bounds dispatch too, not just what the LLM
+            # sees — the capability ceiling holds even against a confused or
+            # injected model emitting other tool names.
+            allowed =
+              case session.tools do
+                nil -> nil
+                mods -> MapSet.new(mods, & &1.name())
+              end
+
+            results = execute_tools(tool_calls, context, allowed)
             session = Session.push_tool_results(session, results)
             Session.save(session)
             execute_loop(session, layer)
@@ -103,24 +112,32 @@ defmodule KbaseBot.Tasks.Runner do
   # Injectable for tests (a stub returning canned tool_use blocks).
   defp llm_client, do: Application.get_env(:kbase_bot, :llm_client, Client)
 
-  defp execute_tools(tool_calls, context) do
+  defp execute_tools(tool_calls, context, allowed) do
     Enum.map(tool_calls, fn %{id: id, name: name, input: input} ->
       Logger.info("Executing tool: #{name}")
 
-      try do
-        case Registry.execute(name, input, context) do
-          {:ok, result} ->
-            %{tool_use_id: id, content: result}
-
-          {:error, reason} ->
-            Logger.warning("Tool #{name} failed: #{reason}")
-            %{tool_use_id: id, content: "Error: #{reason}", is_error: true}
-        end
-      rescue
-        e ->
-          Logger.error("Tool #{name} crashed: #{inspect(e)}")
-          %{tool_use_id: id, content: "Error: tool crashed", is_error: true}
+      if allowed != nil and name not in allowed do
+        %{tool_use_id: id, content: "Error: tool not available in this loop", is_error: true}
+      else
+        execute_tool(id, name, input, context)
       end
     end)
+  end
+
+  defp execute_tool(id, name, input, context) do
+    try do
+      case Registry.execute(name, input, context) do
+        {:ok, result} ->
+          %{tool_use_id: id, content: result}
+
+        {:error, reason} ->
+          Logger.warning("Tool #{name} failed: #{reason}")
+          %{tool_use_id: id, content: "Error: #{reason}", is_error: true}
+      end
+    rescue
+      e ->
+        Logger.error("Tool #{name} crashed: #{inspect(e)}")
+        %{tool_use_id: id, content: "Error: tool crashed", is_error: true}
+    end
   end
 end
