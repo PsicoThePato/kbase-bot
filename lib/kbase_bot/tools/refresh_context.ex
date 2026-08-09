@@ -7,7 +7,7 @@ defmodule KbaseBot.Tools.RefreshContext do
   @impl true
   def description,
     do:
-      "Reload the knowledge base context from disk. Use after files have been modified externally."
+      "Reload the knowledge base context and reindex search from disk. Use after files have been modified externally."
 
   @impl true
   def parameters, do: %{type: "object", properties: %{}}
@@ -18,6 +18,7 @@ defmodule KbaseBot.Tools.RefreshContext do
   @impl true
   def execute(_input, _context) do
     KbaseBot.Context.Server.refresh()
-    {:ok, "Context refreshed."}
+    KbaseBot.KB.Chunker.reindex_all()
+    {:ok, "Context refreshed and search index synced."}
   end
 end

@@ -3,7 +3,7 @@
 demo:
     @test -n "${ANTHROPIC_API_KEY:-}" || { echo "Set ANTHROPIC_API_KEY first"; exit 1; }
     mix deps.get
-    CONSOLE_MODE=true REPO_PATH=sample_kb QMD_ENABLED=false AUTO_COMMIT=false LOCALE=en TIMEZONE=Etc/UTC mix run --no-halt
+    CONSOLE_MODE=true REPO_PATH=sample_kb AUTO_COMMIT=false LOCALE=en TIMEZONE=Etc/UTC mix run --no-halt
 
 # Run the test suite
 test:

@@ -31,7 +31,6 @@ let
     export RELEASE_COOKIE=kbase-bot-no-dist
     export REPO_PATH=${lib.escapeShellArg cfg.repoPath}
     export DB_PATH=${lib.escapeShellArg "${cfg.stateDir}/repo.db"}
-    export QMD_ENABLED=${lib.boolToString cfg.qmdEnabled}
     export TZDATA_DIR=${lib.escapeShellArg "${cfg.stateDir}/tzdata"}
     export RELEASE_TMP=${lib.escapeShellArg "${cfg.stateDir}/tmp"}
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList
@@ -84,15 +83,10 @@ in
     extraEnvironment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
-      example = { TIMEZONE = "America/Sao_Paulo"; QMD_PATH = "qmd"; };
+      example = { TIMEZONE = "America/Sao_Paulo"; };
       description = "Extra (non-secret) environment variables for the service.";
     };
 
-    qmdEnabled = lib.mkOption {
-      type = lib.types.bool;
-      default = false;
-      description = "Enable QMD semantic search (requires the qmd CLI on PATH).";
-    };
   };
 
   config = lib.mkIf cfg.enable {

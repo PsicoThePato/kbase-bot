@@ -46,10 +46,6 @@ defmodule KbaseBot.Tasks.Task do
     %{task | state: :executing, updated_at: now_iso()}
   end
 
-  def start_planning(%__MODULE__{} = task) do
-    %{task | state: :planning, updated_at: now_iso()}
-  end
-
   def complete(%__MODULE__{} = task, result) do
     %{task | state: :done, outcome: {:success, result}, updated_at: now_iso()}
   end
@@ -69,10 +65,6 @@ defmodule KbaseBot.Tasks.Task do
     |> Map.put(:state, :executing)
     |> Map.put(:outcome, nil)
     |> Map.put(:updated_at, now_iso())
-  end
-
-  def set_plan(%__MODULE__{} = task, plan) do
-    %{task | plan: plan, updated_at: now_iso()}
   end
 
   def extract_last_assistant_text(%__MODULE__{messages: messages}) do
@@ -175,6 +167,8 @@ defmodule KbaseBot.Tasks.Task do
   end
 
   defp now_iso do
-    DateTime.now!("America/Sao_Paulo") |> DateTime.to_iso8601()
+    Application.get_env(:kbase_bot, :timezone, "America/Sao_Paulo")
+    |> DateTime.now!()
+    |> DateTime.to_iso8601()
   end
 end

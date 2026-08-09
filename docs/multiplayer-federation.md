@@ -1,8 +1,9 @@
 # Multiplayer / Federation Design
 
-Status: **design — not implemented**. This doc defines the protocol concepts and the
-preparation work in the current codebase so that federation can be added later without
-a rewrite.
+Status: **implemented (v1)** — this doc is the protocol design and its rationale.
+For the operator's how-to (setting up an instance, exchanging cards, issuing
+grants), see [`federation-guide.md`](federation-guide.md); for what comes after
+v1, see [`roadmap.md`](roadmap.md).
 
 ## Vision
 
@@ -156,7 +157,7 @@ defaults:
   "Journal/**":  {scopes: [journal]}
   "medical/**":  {scopes: [medical]}
   "**":          {scopes: [private]}      # unlabeled ⇒ private, always
-grants:
+grants:                                       # DESIGN ONLY — not implemented in v1, see note below
   "sha256:alice…": {movies: {query: {depth: 2}, subscribe: {}}, books: [query, read]}
   "sha256:bob…":   {training: [query]}        # list form ⇒ all capabilities at depth 0
 ```
@@ -178,9 +179,12 @@ Rules:
 - `medical` (and anything the owner flags) is **non-grantable**: the policy loader
   rejects grants against it. This encodes the existing CLAUDE.md rule that health data
   never leaves the vault.
-- The `grants:` entries are authoring sugar: the loader materializes each as a
+- The `grants:` entries are authoring sugar: the loader would materialize each as a
   **signed delegation record** with `iss` = owner — the same artifact peers exchange
-  when they delegate (see "One authorization mechanism").
+  when they delegate (see "One authorization mechanism"). **Not implemented in v1:**
+  the shipped loader reads `defaults`, `non_grantable`, and `scope_descriptions`;
+  a `grants:` key is silently ignored — grants exist solely as records issued
+  through the `grant_scope` tool.
 
 ### Scope visibility & advertisement
 
@@ -721,6 +725,11 @@ two separate stores — and doubles as the rehearsal script for the real
 two-VPS deploy. `--keep` preserves the tmp dirs for inspection.
 
 ## Preparation in the current codebase
+
+> **Historical section.** This was the pre-implementation plan; the seams it
+> describes have since been built and shipped as federation v1. It is kept as
+> the record of which invariants were considered load-bearing before any
+> federation code existed.
 
 None of this requires building federation now. It requires not baking single-ownership
 in any deeper, and un-baking it where it's cheap. Confirmed seams:

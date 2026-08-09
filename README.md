@@ -12,19 +12,10 @@ prompts, personality tweaks) lives in *your* data directory, not in this repo.
 
 Two LLM layers with different jobs and different tools:
 
-```mermaid
-flowchart LR
-    TG[Telegram] --> IN[Ingress]
-    IN --> M[Manager LLM<br/>conversation · planning · scheduling]
-    M -->|spawn_task| T1[Task worker LLM]
-    M -->|spawn_task| T2[Task worker LLM]
-    T1 --> KB[(Knowledge base<br/>markdown + semantic index)]
-    T2 --> KB
-    T1 -->|task_complete| M
-    M -->|respond| TG
-    CRON[Cron scheduler] -->|schedule fired| M
-    M --> DB[(SQLite<br/>history · tasks · schedules)]
-```
+![Architecture](docs/architecture.svg)
+
+<sup>Diagram source: [`docs/architecture.d2`](docs/architecture.d2) —
+regenerate with `d2 docs/architecture.d2 docs/architecture.svg`.</sup>
 
 - **Manager** — owns the conversation. Decides whether to answer directly, save a
   journal entry, create a schedule, or spawn a background task. Never answers
@@ -35,14 +26,20 @@ flowchart LR
   tasks run.
 - **Scheduler** — cron expressions persisted in SQLite; firings are injected into the
   Manager loop as system events (daily briefings, reminders, recurring queries).
+- **Federation** — peer agents talk to the bot through signed envelopes, verified and
+  authorized against owner-issued grants. Every peer interaction runs in a subagent
+  confined to exactly that peer's clearance; its only write is a quarantine inbox, and
+  peer bytes never enter the Manager loop — that's the prompt-injection boundary,
+  enforced structurally rather than by prompt.
 - **Tools** — every capability is a module implementing the `KbaseBot.Tool`
-  behaviour, declaring which layer (`:manager`, `:task`, `:both`) may use it. Adding a
-  capability = adding one module.
+  behaviour, declaring which layer (`:manager`, `:task`, `:both`, `:federation`) may
+  use it. Adding a capability = adding one module.
 
 ## Features
 
-- **Knowledge-base Q&A** with optional semantic search (QMD vector index; falls back
-  to structured file reading) over plain markdown.
+- **Knowledge-base Q&A** with built-in hybrid search over plain markdown — FTS5
+  keyword search always on, fused with Voyage vector similarity when
+  `VOYAGE_API_KEY` is set.
 - **Journal** — timestamped daily entries written back into the knowledge base, with
   optional git auto-commit.
 - **Schedules** — natural-language reminders and recurring events compiled to cron.
@@ -56,6 +53,10 @@ flowchart LR
   [age](https://age-encryption.org)-encrypted blobs with hashed filenames and
   decrypted only on the deployment host (encryption scripts live with the deployment,
   not in this repo).
+- **Federation** — your bot talks to your friends' bots: scoped grants
+  (deny-by-default, signed delegation records), queries and multi-turn discussions,
+  subscriptions, key rotation, store-and-forward delivery, per-peer inference
+  budgets, and a disclosure ledger. Two-instance demo: `mix kbase_bot.demo`.
 
 ## Prompts & personality
 
@@ -96,6 +97,9 @@ and reads results — so give it time. The same pattern works for every optional
 integration below: set the key, the tool shows up.
 
 ## Running it for real
+
+Prerequisites: Elixir ~> 1.17 on OTP 27 (or skip installing anything and use
+the dev shell in the flake: `nix develop`).
 
 ```sh
 cp .env.example .env   # fill in: Telegram bot token + chat id, Anthropic key, etc.
@@ -185,20 +189,40 @@ exist.
 | `VOYAGE_API_KEY` | `search_history` / `search_tasks` — semantic search over past conversations and task results (starts the background embedder) | [voyageai.com](https://www.voyageai.com) |
 | `GIPHY_API_KEY` | `send_gif` (Telegram mode only) | [developers.giphy.com](https://developers.giphy.com) |
 
-**Semantic search over the knowledge base** is separate: it shells out to
-[qmd](https://github.com/tobi/qmd) (`npm install`, then `qmd update && qmd embed` to
-build the index). Enable with `QMD_ENABLED=true` and point `QMD_PATH` at the binary
-(`node_modules/.bin/qmd`). Without it, the agent falls back to `list_files` +
-`read_file`, which works fine for small knowledge bases.
+**Knowledge-base search** is built in: markdown is chunked into SQLite (FTS5
+keyword search, no external dependencies). With `VOYAGE_API_KEY` set, chunks are
+also embedded and search becomes hybrid (BM25 + vector, reciprocal-rank fusion).
 
 Tests: `mix test`. CI runs format check, compile with warnings-as-errors, and tests.
 
+## Federation
+
+Implemented: agent-to-agent communication between personal knowledge bases. Owners
+grant peers scoped, revocable access (grants are signed delegation records; deny by
+default, `private`/`medical` never grantable); peers can query, hold multi-turn
+discussions, and subscribe to feeds — always through subagents confined to that
+peer's clearance. Contact cards are self-signed and transport-agnostic; identities
+are Ed25519 keypairs with a rotation protocol; delivery survives peer downtime via a
+store-and-forward queue; per-peer monthly inference budgets keep strangers from
+spending your tokens. To stand up an instance and connect with a friend, follow
+[`docs/federation-guide.md`](docs/federation-guide.md); the full protocol design
+(and what's deliberately deferred) is in
+[`docs/multiplayer-federation.md`](docs/multiplayer-federation.md).
+
+Watch two bots talk over real localhost HTTP — cards, grants, query/answer,
+key rotation, store-and-forward across a peer restart — with no API keys needed:
+
+```sh
+mix kbase_bot.demo
+```
+
 ## Roadmap
 
-The interesting one: **federation** — agent-to-agent communication between personal
-knowledge bases, with scoped privacy grants, per-topic trust, capability-token
-transitivity, and pluggable identity. The full protocol design is in
-[`docs/multiplayer-federation.md`](docs/multiplayer-federation.md).
+The long arc — a guardian-angel style personal model whose corpus this bot is
+quietly accumulating, the three-layer memory architecture that consolidates it
+into weights, and the deferred tail of federation (trust weights, gossip,
+delegation chains, discovery) — is laid out in
+[`docs/roadmap.md`](docs/roadmap.md).
 
 ## License
 

@@ -39,24 +39,21 @@ defmodule KbaseBot.Tools.PromoteInboxItem do
   def execute(%{"path" => path} = input, context) do
     with :ok <- KbaseBot.Tool.require_owner(context),
          {:ok, full, rel, topic} <- KbaseBot.Tools.DiscardInboxItem.resolve_inbox_path(path),
-         {:ok, dest_rel} <- resolve_dest(input["dest_dir"], topic, rel) do
-      root = KbaseBot.Context.Server.repo_path()
-      dest_full = Path.join(root, dest_rel)
-      File.mkdir_p!(Path.dirname(dest_full))
-
+         {:ok, dest_rel} <- resolve_dest(input["dest_dir"], topic, rel),
+         {:ok, content} <- File.read(full) do
       source = source_principal(full)
+      opts = [actor: "jairo", source: "promote_inbox", meta: %{peer: source, from: rel}]
 
-      case File.rename(full, dest_full) do
-        :ok ->
-          TrustSignals.log(source, topic, rel, "promote")
+      with {:ok, _} <- KbaseBot.KB.Writer.write(dest_rel, content, opts),
+           {:ok, _} <- KbaseBot.KB.Writer.delete(rel, opts) do
+        TrustSignals.log(source, topic, rel, "promote")
 
-          {:ok,
-           "Promoted to #{dest_rel} (still scoped [private] and attributed to " <>
-             "#{source} — relabel its scopes yourself if it should be shareable). " <>
-             "Trust signal logged: promote for #{source}/#{topic}."}
-
-        {:error, reason} ->
-          {:error, "could not move file: #{inspect(reason)}"}
+        {:ok,
+         "Promoted to #{dest_rel} (still scoped [private] and attributed to " <>
+           "#{source} — relabel its scopes yourself if it should be shareable). " <>
+           "Trust signal logged: promote for #{source}/#{topic}."}
+      else
+        {:error, reason} -> {:error, "could not move file: #{inspect(reason)}"}
       end
     end
   end

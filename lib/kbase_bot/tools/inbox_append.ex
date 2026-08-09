@@ -33,15 +33,11 @@ defmodule KbaseBot.Tools.InboxAppend do
   def execute(%{"title" => title, "content" => content} = input, context) do
     publisher = context[:publisher_id] || "unknown"
     topic = sanitize(context[:topic] || "misc")
-    repo_path = KbaseBot.Context.Server.repo_path()
-
-    dir = Path.join([repo_path, "inbox", topic])
-    File.mkdir_p!(dir)
 
     date = Date.utc_today() |> Date.to_iso8601()
     suffix = :crypto.strong_rand_bytes(3) |> Base.url_encode64(padding: false)
     filename = "#{date}-#{sanitize(title)}-#{suffix}.md"
-    path = Path.join(dir, filename)
+    rel_path = Path.join(["inbox", topic, filename])
 
     # Quoted, attributed, never owner voice — and private, so no grant can
     # re-export it before the owner promotes it.
@@ -57,8 +53,14 @@ defmodule KbaseBot.Tools.InboxAppend do
     #{content}
     """
 
-    File.write!(path, file_content)
-    {:ok, "Filed to inbox/#{topic}/#{filename}"}
+    case KbaseBot.KB.Writer.write(rel_path, file_content,
+           actor: "peer:#{publisher}",
+           source: "inbox_append",
+           meta: %{topic: topic}
+         ) do
+      {:ok, _} -> {:ok, "Filed to #{rel_path}"}
+      {:error, reason} -> {:error, "could not file item: #{inspect(reason)}"}
+    end
   end
 
   defp note_line(nil), do: ""

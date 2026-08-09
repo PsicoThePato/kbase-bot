@@ -10,7 +10,6 @@ defmodule KbaseBot.Telegram.Bot do
   command("start", description: "Start the bot")
   command("ask", description: "Ask a question about the knowledge base")
   command("cancel", description: "Cancel the active task")
-  command("clear", description: "Clear conversation history")
   command("briefing", description: "Get today's briefing now")
   command("refresh", description: "Refresh knowledge base context")
 
@@ -37,12 +36,6 @@ defmodule KbaseBot.Telegram.Bot do
   def handle({:command, "cancel", _msg}, context) do
     if authorized?(context) do
       KbaseBot.Ingress.push("/cancel")
-    end
-  end
-
-  def handle({:command, "clear", _msg}, context) do
-    if authorized?(context) do
-      KbaseBot.Ingress.push("/clear")
     end
   end
 

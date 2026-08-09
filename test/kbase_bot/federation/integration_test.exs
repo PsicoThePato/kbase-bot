@@ -43,8 +43,7 @@ defmodule KbaseBot.Federation.IntegrationTest do
       llm_client: Application.get_env(:kbase_bot, :llm_client),
       loopback_receiver: Application.get_env(:kbase_bot, :loopback_receiver),
       message_sink: Application.get_env(:kbase_bot, :message_sink),
-      telegram_chat_id: Application.get_env(:kbase_bot, :telegram_chat_id),
-      qmd_enabled: Application.get_env(:kbase_bot, :qmd_enabled)
+      telegram_chat_id: Application.get_env(:kbase_bot, :telegram_chat_id)
     }
 
     Application.put_env(:kbase_bot, :db_path, Path.join(tmp, "test.db"))
@@ -55,7 +54,6 @@ defmodule KbaseBot.Federation.IntegrationTest do
     # Owner-facing messages (OwnerNotifier + subagent notify_user) land here.
     Application.put_env(:kbase_bot, :message_sink, self())
     Application.put_env(:kbase_bot, :telegram_chat_id, 4_242)
-    Application.put_env(:kbase_bot, :qmd_enabled, false)
 
     # Keys are cached in persistent_term — reset between tests.
     :persistent_term.erase({KbaseBot.Identity.Keys, :keypair})

@@ -1,0 +1,45 @@
+# KbaseBot architecture — source for docs/architecture.svg
+# Regenerate with:  d2 docs/architecture.d2 docs/architecture.svg
+
+direction: right
+
+tg: Telegram
+ingress: Ingress
+manager: "Manager LLM\nconversation · planning · scheduling"
+workers: "Task worker LLMs\nbounded tool-use loops"
+kb: "Knowledge base\nmarkdown + semantic index" {
+  shape: cylinder
+}
+db: "SQLite\nhistory · tasks · schedules · grants" {
+  shape: cylinder
+}
+cron: Cron scheduler
+
+tg -> ingress
+ingress -> manager
+manager -> workers: spawn_task
+workers -> kb
+workers -> manager: task_complete
+manager -> tg: respond
+cron -> manager: schedule fired
+manager -> db
+
+federation: "Federation — peer bytes never reach the Manager" {
+  peer: Peer agents
+  inbox: "Inbox\nverify · authorize · budget"
+  subagents: "Confined subagents\nresponder · discussant\nevaluator · interlocutor"
+  quarantine: "inbox/ quarantine"
+  outbound: "Outbound\n+ store-and-forward queue"
+
+  peer -> inbox: signed envelopes
+  inbox -> subagents
+  subagents -> quarantine: only write
+  subagents -> outbound
+  outbound -> peer
+}
+
+federation.subagents -> kb: policy-filtered reads
+manager -> federation.outbound: query_peer · grants
+federation.subagents -> tg: reports via notify_user {
+  style.stroke-dash: 3
+}

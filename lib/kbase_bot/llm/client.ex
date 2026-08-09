@@ -142,12 +142,6 @@ defmodule KbaseBot.LLM.Client do
 
   def extract_tool_calls(_), do: []
 
-  @doc """
-  Check if the response's stop_reason indicates tool use.
-  """
-  def needs_tool_response?(%{"stop_reason" => "tool_use"}), do: true
-  def needs_tool_response?(_), do: false
-
   # --- Key conversion ---
 
   # Anthropix only requires the top-level :role/:content keys to be atoms;

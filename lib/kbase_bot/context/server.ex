@@ -1,7 +1,7 @@
 defmodule KbaseBot.Context.Server do
   @moduledoc """
   Holds user profile and repo path config in memory.
-  Full knowledge base search is handled by QMD.
+  Full knowledge base search lives in KbaseBot.KB.Search.
   """
   use GenServer
 

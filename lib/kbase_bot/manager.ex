@@ -52,6 +52,7 @@ defmodule KbaseBot.Manager do
   def init(_) do
     chat_id = Application.fetch_env!(:kbase_bot, :telegram_chat_id)
     conversation = load_conversation_history()
+    reconcile_orphaned_tasks()
 
     Logger.info("Manager started with #{length(conversation)} messages in history")
 
@@ -307,16 +308,16 @@ defmodule KbaseBot.Manager do
       )
 
     Task.save(task)
+    state = put_in(state.active_tasks, Map.put(state.active_tasks, task.id, run_task(session)))
+    {"Task #{task.id} spawned.", state}
+  end
 
-    # Spawn under TaskSupervisor
+  defp run_task(session) do
     manager_pid = self()
 
     Elixir.Task.Supervisor.async_nolink(KbaseBot.TaskSupervisor, fn ->
       Runner.run(session, manager_pid)
     end)
-
-    state = put_in(state.active_tasks, Map.put(state.active_tasks, task.id, task))
-    {"Task #{task.id} spawned.", state}
   end
 
   defp handle_cancel_task(%{"task_id" => task_id}, state) do
@@ -324,8 +325,12 @@ defmodule KbaseBot.Manager do
       nil ->
         {"Task #{task_id} not found in active tasks.", state}
 
-      _task ->
-        # Mark as failed in DB
+      %Elixir.Task{pid: pid, ref: ref} ->
+        # Actually stop the work: kill the runner process (it stops consuming
+        # LLM budget and never sends {:task_complete, ...}), then record.
+        Process.demonitor(ref, [:flush])
+        Elixir.Task.Supervisor.terminate_child(KbaseBot.TaskSupervisor, pid)
+
         case Task.find(task_id) do
           {:ok, task} ->
             task = Task.fail(task, "cancelled")
@@ -357,13 +362,9 @@ defmodule KbaseBot.Manager do
 
         Task.save(task)
 
-        manager_pid = self()
+        state =
+          put_in(state.active_tasks, Map.put(state.active_tasks, task_id, run_task(session)))
 
-        Elixir.Task.Supervisor.async_nolink(KbaseBot.TaskSupervisor, fn ->
-          Runner.run(session, manager_pid)
-        end)
-
-        state = put_in(state.active_tasks, Map.put(state.active_tasks, task_id, task))
         {"Message sent to task #{task_id}, resuming.", state}
 
       {:ok, _task} ->
@@ -427,6 +428,22 @@ defmodule KbaseBot.Manager do
     )
 
     %{state | conversation_messages: messages}
+  end
+
+  # A restart orphans any task that was running: active_tasks is in-memory,
+  # so nothing would ever complete or report those rows again. Fail them at
+  # boot so list_active_tasks tells the truth.
+  defp reconcile_orphaned_tasks do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    KbaseBot.Repo.Store.execute(
+      """
+      UPDATE tasks SET state = 'failed', status_message = 'orphaned by restart',
+          updated_at = ?1
+      WHERE state IN ('pending', 'planning', 'executing')
+      """,
+      [now]
+    )
   end
 
   defp load_conversation_history do

@@ -1,17 +1,27 @@
 defmodule KbaseBot.Repo.Migrations do
+  @moduledoc """
+  Schema v2. There is no migration machinery on purpose: the DB is disposable
+  (replicated for durability, wiped on schema change); only the knowledge base
+  markdown persists. Schema changes edit the CREATE statements here and reboot
+  from zero.
+  """
+
   def run(conn) do
     migrations()
     |> Enum.each(fn sql ->
       :ok = Exqlite.Sqlite3.execute(conn, sql)
     end)
 
-    alter_migrations()
-    |> Enum.each(fn sql ->
-      case Exqlite.Sqlite3.execute(conn, sql) do
-        :ok -> :ok
-        {:error, _} -> :ok
-      end
-    end)
+    # FTS5 is compiled into exqlite's bundled SQLite everywhere we deploy, but
+    # keyword search degrades to LIKE rather than the app failing to boot if a
+    # build lacks it (KB.Chunker.fts_available?/0 is the runtime check).
+    case Exqlite.Sqlite3.execute(
+           conn,
+           "CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts5(chunk_id UNINDEXED, path UNINDEXED, content)"
+         ) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
   end
 
   defp migrations do
@@ -25,6 +35,7 @@ defmodule KbaseBot.Repo.Migrations do
           messages TEXT NOT NULL DEFAULT '[]',
           outcome TEXT,
           status_message TEXT,
+          embedded_at TEXT,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
       )
@@ -53,15 +64,35 @@ defmodule KbaseBot.Repo.Migrations do
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           role TEXT NOT NULL,
           content TEXT NOT NULL,
+          embedded_at TEXT,
           created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
       )
       """,
       """
-      CREATE TABLE IF NOT EXISTS journal_entries (
+      CREATE TABLE IF NOT EXISTS kb_writes (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          filename TEXT NOT NULL,
-          message_text TEXT NOT NULL,
-          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+          ts TEXT NOT NULL,
+          path TEXT NOT NULL,
+          op TEXT NOT NULL CHECK (op IN ('write', 'append', 'delete')),
+          content TEXT,
+          actor TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT 'unknown',
+          meta TEXT NOT NULL DEFAULT '{}'
+      )
+      """,
+      """
+      CREATE INDEX IF NOT EXISTS idx_kb_writes_path ON kb_writes (path, id)
+      """,
+      """
+      CREATE TABLE IF NOT EXISTS kb_chunks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          path TEXT NOT NULL,
+          idx INTEGER NOT NULL,
+          content TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          embedded_at TEXT,
+          updated_at TEXT NOT NULL,
+          UNIQUE (path, idx)
       )
       """,
       """
@@ -235,18 +266,6 @@ defmodule KbaseBot.Repo.Migrations do
           alerted INTEGER NOT NULL DEFAULT 0,
           PRIMARY KEY (month, principal_id)
       )
-      """
-    ]
-  end
-
-  defp alter_migrations do
-    [
-      "ALTER TABLE manager_messages ADD COLUMN embedded_at TEXT",
-      "ALTER TABLE tasks ADD COLUMN embedded_at TEXT",
-      """
-      UPDATE schedules
-      SET next_fire_at = strftime('%Y-%m-%dT%H:%M:%SZ', next_fire_at)
-      WHERE next_fire_at IS NOT NULL AND next_fire_at NOT LIKE '%Z'
       """
     ]
   end

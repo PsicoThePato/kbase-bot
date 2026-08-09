@@ -10,20 +10,6 @@ defmodule KbaseBot.Policy do
 
   alias KbaseBot.Principal
 
-  @type capability :: :read | :query | :subscribe | :discuss
-
-  @spec can?(Principal.t() | nil, capability(), term()) :: boolean()
-  def can?(%Principal{} = principal, _capability, _resource) do
-    Principal.owner?(principal)
-  end
-
-  def can?(_, _, _), do: false
-
-  @spec filter(Principal.t() | nil, capability(), [term()]) :: [term()]
-  def filter(principal, capability, resources) do
-    Enum.filter(resources, &can?(principal, capability, &1))
-  end
-
   @doc """
   May `principal` read this knowledge-base file? An ungranted file must be
   indistinguishable from a missing one to the caller (deny by default).

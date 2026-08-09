@@ -11,7 +11,6 @@ defmodule KbaseBot.Tasks.Session do
     :model,
     :turn,
     :system_prompt,
-    :needs_planning,
     # Principal this session runs as — tools are policy-gated against it.
     :principal,
     # Where notify_user delivers; nil falls back to the owner chat id.
@@ -31,7 +30,6 @@ defmodule KbaseBot.Tasks.Session do
       model: Keyword.get(opts, :model) || Application.fetch_env!(:kbase_bot, :model),
       turn: 0,
       system_prompt: system_prompt,
-      needs_planning: Keyword.get(opts, :needs_planning, false),
       principal: Keyword.get(opts, :principal) || KbaseBot.Principal.owner(),
       notify_chat_id: Keyword.get(opts, :notify_chat_id),
       tools: Keyword.get(opts, :tools),
@@ -68,10 +66,6 @@ defmodule KbaseBot.Tasks.Session do
       end)
 
     push_message(session, %{"role" => "user", "content" => content})
-  end
-
-  def follow_up(%__MODULE__{} = session, text) do
-    %{session | task: Task.follow_up(session.task, text)}
   end
 
   def increment_turn(%__MODULE__{} = session) do

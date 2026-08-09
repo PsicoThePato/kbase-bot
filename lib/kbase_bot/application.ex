@@ -16,13 +16,15 @@ defmodule KbaseBot.Application do
           [
             KbaseBot.Repo.Store,
             KbaseBot.Context.Server,
+            materialize_child(),
             {Elixir.Task.Supervisor, name: KbaseBot.TaskSupervisor}
           ] ++ federation_children()
 
         true ->
           [
             KbaseBot.Repo.Store,
-            KbaseBot.Context.Server
+            KbaseBot.Context.Server,
+            materialize_child()
           ] ++
             embedder_children() ++
             [
@@ -37,6 +39,24 @@ defmodule KbaseBot.Application do
 
     opts = [strategy: :one_for_one, name: KbaseBot.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  # One-shot, :temporary: rebuilds bot-written KB files from the kb_writes log,
+  # then syncs the search index to whatever is on disk. Runs after
+  # Store + Context.Server, before anything reads or searches the KB.
+  defp materialize_child do
+    %{
+      id: :kb_materialize,
+      start:
+        {Elixir.Task, :start_link,
+         [
+           fn ->
+             KbaseBot.KB.Writer.materialize!()
+             KbaseBot.KB.Chunker.reindex_all()
+           end
+         ]},
+      restart: :temporary
+    }
   end
 
   defp embedder_children do

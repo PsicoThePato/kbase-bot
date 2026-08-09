@@ -1,59 +1,45 @@
 defmodule KbaseBot.Journal.Writer do
   @moduledoc """
-  Appends entries to a daily journal file.
-  One file per day: Journal/YYYY-MM-DD.md
+  Appends entries to a daily journal file, one file per day:
+  Journal/YYYY-MM-DD.md. All writes go through KB.Writer, so the durable
+  record is the kb_writes log; the markdown file is a materialized view.
   """
 
-  require Logger
+  alias KbaseBot.KB
 
   def append_entry(text) do
-    repo_path = KbaseBot.Context.Server.repo_path()
-    now = DateTime.now!("America/Sao_Paulo")
+    now = DateTime.now!(timezone())
     date_str = Calendar.strftime(now, "%Y-%m-%d")
     time_str = Calendar.strftime(now, "%H:%M")
     filename = "#{date_str}.md"
-    file_path = Path.join([repo_path, "Journal", filename])
+    rel_path = Path.join("Journal", filename)
+    full_path = Path.join(KbaseBot.Context.Server.repo_path(), rel_path)
 
-    content =
-      if File.exists?(file_path) do
-        "\n### #{time_str} BRT\n#{text}\n"
+    entry = "### #{time_str} #{now.zone_abbr}\n#{text}\n"
+    opts = [actor: "jairo", source: "journal", meta: %{tz: timezone()}]
+
+    result =
+      if File.exists?(full_path) do
+        KB.Writer.append(rel_path, "\n" <> entry, opts)
       else
-        """
-        ---
-        date: #{date_str}
-        ---
-
-        ### #{time_str} BRT
-        #{text}
-        """
+        KB.Writer.write(rel_path, "---\ndate: #{date_str}\n---\n\n" <> entry, opts)
       end
 
-    # Return {:error, posix} instead of raising so the journal_entry tool can
-    # report the failure to the LLM rather than crashing the tool call
-    with :ok <- File.mkdir_p(Path.dirname(file_path)),
-         :ok <- File.write(file_path, content, [:append]) do
-      # Log to SQLite
-      KbaseBot.Repo.Store.execute(
-        "INSERT INTO journal_entries (filename, message_text) VALUES (?1, ?2)",
-        [filename, text]
-      )
-
-      # Git auto-commit
+    with {:ok, _} <- result do
       if Application.get_env(:kbase_bot, :auto_commit, false) do
-        auto_commit(repo_path, filename, text)
+        auto_commit(KbaseBot.Context.Server.repo_path(), text)
       end
 
       {:ok, filename, time_str}
     end
   end
 
-  defp auto_commit(repo_path, _filename, text) do
+  defp timezone, do: Application.get_env(:kbase_bot, :timezone, "America/Sao_Paulo")
+
+  defp auto_commit(repo_path, text) do
     summary = String.slice(text, 0, 50)
 
-    System.cmd("git", ["add", "Journal/"],
-      cd: repo_path,
-      stderr_to_stdout: true
-    )
+    System.cmd("git", ["add", "Journal/"], cd: repo_path, stderr_to_stdout: true)
 
     System.cmd("git", ["commit", "-m", "journal: #{summary}"],
       cd: repo_path,

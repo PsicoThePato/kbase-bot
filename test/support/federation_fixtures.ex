@@ -17,7 +17,6 @@ defmodule KbaseBot.Test.FederationFixtures do
     :loopback_receiver,
     :message_sink,
     :telegram_chat_id,
-    :qmd_enabled,
     :federation_peer_monthly_loops,
     :federation_unreachable_alert_s
   ]
@@ -43,7 +42,6 @@ defmodule KbaseBot.Test.FederationFixtures do
     Application.put_env(:kbase_bot, :loopback_receiver, self())
     Application.put_env(:kbase_bot, :message_sink, self())
     Application.put_env(:kbase_bot, :telegram_chat_id, 4_242)
-    Application.put_env(:kbase_bot, :qmd_enabled, false)
 
     :persistent_term.erase({KbaseBot.Identity.Keys, :keypair})
 

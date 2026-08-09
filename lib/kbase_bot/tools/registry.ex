@@ -8,6 +8,7 @@ defmodule KbaseBot.Tools.Registry do
     KbaseBot.Tools.Respond,
     KbaseBot.Tools.GetCurrentTime,
     KbaseBot.Tools.JournalEntry,
+    KbaseBot.Tools.LogPreference,
     KbaseBot.Tools.RefreshContext,
     KbaseBot.Tools.SpawnTask,
     KbaseBot.Tools.ListActiveTasks,

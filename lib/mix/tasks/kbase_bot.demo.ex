@@ -274,8 +274,7 @@ defmodule Mix.Tasks.KbaseBot.Demo do
       "FEDERATION_DISPLAY_NAME" => "Alice",
       "FEDERATION_ALLOW_PRIVATE_ENDPOINTS" => "true",
       "REPO_PATH" => Path.join(root, "alice_kb"),
-      "DB_PATH" => Path.join(root, "alice.db"),
-      "QMD_ENABLED" => "false"
+      "DB_PATH" => Path.join(root, "alice.db")
     }
   end
 
@@ -291,7 +290,6 @@ defmodule Mix.Tasks.KbaseBot.Demo do
       "FEDERATION_ALLOW_PRIVATE_ENDPOINTS" => "true",
       "REPO_PATH" => Path.join(root, "bob_kb"),
       "DB_PATH" => Path.join(root, "bob.db"),
-      "QMD_ENABLED" => "false",
       "ALICE_CARD_FILE" => Path.join(root, "alice_card.json"),
       "BOB_CARD_FILE" => Path.join(root, "bob_card.json")
     }

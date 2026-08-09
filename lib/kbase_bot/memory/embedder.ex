@@ -34,6 +34,7 @@ defmodule KbaseBot.Memory.Embedder do
   def handle_info(:poll, state) do
     embed_new_messages()
     embed_new_tasks()
+    embed_new_chunks()
     Process.send_after(self(), :poll, state.poll_interval)
     {:noreply, state}
   end
@@ -106,8 +107,38 @@ defmodule KbaseBot.Memory.Embedder do
     end
   end
 
+  defp embed_new_chunks do
+    case Store.query(
+           "SELECT id, path, content FROM kb_chunks WHERE embedded_at IS NULL ORDER BY id ASC LIMIT ?1",
+           [@batch_size]
+         ) do
+      {:ok, rows} when rows != [] ->
+        {ids, texts} =
+          rows |> Enum.map(fn [id, _path, content] -> {id, content} end) |> Enum.unzip()
+
+        case VoyageClient.embed(texts) do
+          {:ok, embeddings} ->
+            store_embeddings("kb_chunk", ids, embeddings)
+            Logger.info("Embedded #{length(ids)} KB chunks")
+
+          {:error, reason} ->
+            Logger.warning("Failed to embed KB chunks: #{inspect(reason)}")
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  @embedded_at_table %{
+    "message" => "manager_messages",
+    "task" => "tasks",
+    "kb_chunk" => "kb_chunks"
+  }
+
   defp store_embeddings(source_type, ids, embeddings) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()
+    table = Map.fetch!(@embedded_at_table, source_type)
 
     Enum.zip(ids, embeddings)
     |> Enum.each(fn {source_id, embedding} ->
@@ -117,8 +148,6 @@ defmodule KbaseBot.Memory.Embedder do
         "INSERT INTO embeddings (source_type, source_id, embedding, created_at) VALUES (?1, ?2, ?3, ?4)",
         [source_type, to_string(source_id), blob, now]
       )
-
-      table = if source_type == "message", do: "manager_messages", else: "tasks"
 
       Store.execute(
         "UPDATE #{table} SET embedded_at = ?1 WHERE id = ?2",
@@ -139,15 +168,10 @@ defmodule KbaseBot.Memory.Embedder do
       if rows == [] do
         {:ok, []}
       else
-        query_tensor = Nx.tensor(query_embedding, type: :f32)
-
         scored =
           rows
           |> Enum.map(fn [source_id, blob] ->
-            embedding = decode_embedding(blob)
-            tensor = Nx.tensor(embedding, type: :f32)
-            score = cosine_similarity(query_tensor, tensor)
-            {source_id, Nx.to_number(score)}
+            {source_id, cosine_similarity(query_embedding, decode_embedding(blob))}
           end)
           |> Enum.sort_by(fn {_id, score} -> score end, :desc)
           |> Enum.take(k)
@@ -159,10 +183,12 @@ defmodule KbaseBot.Memory.Embedder do
   end
 
   defp cosine_similarity(a, b) do
-    dot = Nx.dot(a, b)
-    norm_a = Nx.LinAlg.norm(a)
-    norm_b = Nx.LinAlg.norm(b)
-    Nx.divide(dot, Nx.max(Nx.multiply(norm_a, norm_b), 1.0e-8))
+    {dot, na, nb} =
+      Enum.zip_reduce(a, b, {0.0, 0.0, 0.0}, fn x, y, {dot, na, nb} ->
+        {dot + x * y, na + x * x, nb + y * y}
+      end)
+
+    dot / max(:math.sqrt(na) * :math.sqrt(nb), 1.0e-8)
   end
 
   defp fetch_source_content("message", scored) do
@@ -176,6 +202,18 @@ defmodule KbaseBot.Memory.Embedder do
 
         _ ->
           %{role: "unknown", content: "(message not found)", created_at: nil, score: score}
+      end
+    end)
+  end
+
+  defp fetch_source_content("kb_chunk", scored) do
+    Enum.map(scored, fn {source_id, score} ->
+      case Store.query("SELECT id, path, content FROM kb_chunks WHERE id = ?1", [source_id]) do
+        {:ok, [[id, path, content]]} ->
+          %{chunk_id: id, file: path, excerpt: content, score: score}
+
+        _ ->
+          %{chunk_id: source_id, file: "(chunk not found)", excerpt: "", score: score}
       end
     end)
   end

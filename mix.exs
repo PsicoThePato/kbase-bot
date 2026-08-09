@@ -40,7 +40,6 @@ defmodule KbaseBot.MixProject do
       {:exqlite, "~> 0.23"},
       {:tzdata, "~> 1.1"},
       {:crontab, "~> 1.1"},
-      {:nx, "~> 0.7"},
       {:req, "~> 0.5"},
       {:yaml_elixir, "~> 2.9"},
       {:bandit, "~> 1.5"}

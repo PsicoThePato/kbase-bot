@@ -36,8 +36,12 @@ defmodule KbaseBot.Tools.DiscardInboxItem do
          {:ok, full, rel, topic} <- resolve_inbox_path(path) do
       source = source_principal(full)
 
-      case File.rm(full) do
-        :ok ->
+      case KbaseBot.KB.Writer.delete(rel,
+             actor: "jairo",
+             source: "discard_inbox",
+             meta: %{peer: source}
+           ) do
+        {:ok, _} ->
           TrustSignals.log(source, topic, rel, "discard")
           {:ok, "Discarded #{rel}. Trust signal logged: discard for #{source}/#{topic}."}
 

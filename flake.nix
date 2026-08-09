@@ -59,7 +59,6 @@
             sqlite
             gcc
             pkg-config
-            nodejs_22 # for the optional @tobilu/qmd semantic-search CLI
           ];
 
           shellHook = ''
@@ -67,7 +66,7 @@
             export HEX_HOME="$PWD/.nix-hex"
             export ERL_AFLAGS="-kernel shell_history enabled"
             mkdir -p "$MIX_HOME" "$HEX_HOME"
-            export PATH="$MIX_HOME/bin:$MIX_HOME/escripts:$PWD/node_modules/.bin:$PATH"
+            export PATH="$MIX_HOME/bin:$MIX_HOME/escripts:$PATH"
           '';
         };
       }))

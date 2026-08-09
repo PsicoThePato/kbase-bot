@@ -58,12 +58,6 @@ in
       description = "Extra (non-secret) environment variables for the service.";
     };
 
-    qmdEnabled = lib.mkOption {
-      type = lib.types.bool;
-      default = false;
-      description = "Enable QMD semantic search (requires the qmd CLI on PATH; off by default on NixOS).";
-    };
-
     federationPort = lib.mkOption {
       type = lib.types.nullOr lib.types.port;
       default = null;
@@ -115,7 +109,6 @@ in
         REPO_PATH = "${cfg.stateDir}/knowledge_base";
         # The release lives in the read-only store — all writes go to state.
         DB_PATH = "${cfg.stateDir}/repo.db";
-        QMD_ENABLED = lib.boolToString cfg.qmdEnabled;
         # tzdata must write its release cache somewhere writable, not the store.
         TZDATA_DIR = "${cfg.stateDir}/tzdata";
         RELEASE_TMP = "${cfg.stateDir}/tmp";
